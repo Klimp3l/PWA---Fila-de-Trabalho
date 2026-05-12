@@ -1,0 +1,110 @@
+---
+sidebar_position: 10
+tags:
+  - Observador
+  - Técnica
+  - PWA
+iandev:
+  docType: Arquitetura
+  docBase: Técnica
+---
+
+import Mermaid from '@theme/Mermaid';
+
+# 🔷 Arquitetura e Funcionamento - PWA Fila de Trabalho
+
+Documentação técnica do estado atual da aplicação PWA, descrevendo estrutura, responsabilidades, fluxo funcional, funcionamento online-offline e oportunidades de evolução incremental com foco em código mais limpo e fluido.
+
+## ⚙️ 1. Título e Descrição Geral
+
+1. A aplicação é uma SPA em React com TypeScript construída com Vite.
+2. O fluxo principal cobre autenticação, listagem de atividades e listagem de produtos por atividade.
+3. O desenho técnico adota uma abordagem offline-first para continuidade operacional.
+4. A integração principal ocorre via endpoint `odwctrl` do backend.
+
+## 🧩 2. Estrutura de Módulos
+
+1. `src/App.tsx` centraliza autenticação, controle de sessão e roteamento protegido.
+2. `src/pages/HomePage.tsx` exibe atividades do usuário.
+3. `src/pages/ActivityProductsPage.tsx` exibe produtos da atividade selecionada.
+4. `src/components/ProductList.tsx` concentra renderização, filtros, ordenação, paginação e ações de encaminhamento por produto.
+5. `src/services/api.ts` encapsula chamadas HTTP de login, sessão e tarefas.
+6. `src/services/activityData.ts` atua como fachada de dados combinando API e snapshot local.
+7. `src/services/offlineDb.ts` persiste snapshots e seleções no IndexedDB.
+8. `src/hooks/useAtividadesWithOnlineRefresh.ts` centraliza carregamento com refresh em reconexão.
+9. `src/types/workflow.ts` define os contratos de domínio e snapshots offline.
+
+## 🔁 3. Fluxo Geral de Navegação
+
+<Mermaid
+  value={`flowchart LR
+    appStart[InicializacaoDoApp] --> validateSession[ValidarSessao]
+    validateSession -->|SessaoValida| homeRoute[RotaHome]
+    validateSession -->|SessaoInvalida| loginRoute[RotaLogin]
+    loginRoute --> loginAction[ExecutarLogin]
+    loginAction --> sessionRecheck[RevalidarSessao]
+    sessionRecheck --> homeRoute
+    homeRoute --> activityDetail[RotaAtividadePorId]
+  `}
+/>
+
+## 🌐 4. Fluxo de Dados Online e Offline
+
+<Mermaid
+  value={`flowchart LR
+    pages[PagesReact] --> dataFacade[ActivityDataFacade]
+    dataFacade --> apiService[ApiService]
+    dataFacade --> localSelections[SelectionsIndexedDb]
+    dataFacade --> snapshotStore[SnapshotIndexedDb]
+    apiService -->|Sucesso| normalizePayload[NormalizarPayload]
+    normalizePayload --> applySelections[AplicarSelecoesLocais]
+    applySelections --> saveSnapshot[SalvarSnapshotAtual]
+    saveSnapshot --> pages
+    apiService -->|Falha| loadSnapshot[CarregarSnapshotLocal]
+    loadSnapshot --> applySelections
+  `}
+/>
+
+1. A UI solicita atividades via `loadAtividadesWithOfflineFallback`.
+2. Em sucesso online, o payload é normalizado para tipos de domínio.
+3. As seleções locais de encaminhamento são reaplicadas sobre os dados.
+4. O resultado atualizado é salvo como snapshot no IndexedDB.
+5. Em falha online, a aplicação usa snapshot local e preserva continuidade.
+
+## 🗂️ 5. Responsabilidades por Camada
+
+| Camada | Arquivos principais | Responsabilidade |
+| --- | --- | --- |
+| UI e Roteamento | `src/App.tsx`, `src/pages/*`, `src/components/*` | Renderização, eventos de interação e navegação |
+| Hook de orquestração | `src/hooks/useAtividadesWithOnlineRefresh.ts` | Reuso do ciclo carga inicial mais refresh em reconexão |
+| Serviços de API | `src/services/api.ts` | Contrato HTTP e autenticação baseada em sessão |
+| Fachada de dados | `src/services/activityData.ts` | Normalização, fallback offline e aplicação de seleções |
+| Persistência local | `src/services/offlineDb.ts` | Snapshot de atividades e escolhas por produto |
+| Tipos de domínio | `src/types/workflow.ts` | Tipagem de entidades e snapshots |
+
+## 🧠 6. Padrões Simples Aplicados
+
+1. **Facade** em `activityData.ts` para esconder a complexidade de API mais cache local.
+2. **Custom Hook** em `useAtividadesWithOnlineRefresh.ts` para remover duplicação entre páginas.
+3. **Strategy** leve em `ProductList.tsx` com mapa de formatadores por tipo de campo.
+4. **Adapter de tipagem** no parser de payload para converter `unknown` em entidades seguras.
+
+## ✅ 7. Melhorias Técnicas Implementadas nesta Auditoria
+
+1. Tipagem reforçada na camada HTTP com parse seguro e retorno explícito em `api.ts`.
+2. Remoção de logs de depuração no fluxo de autenticação.
+3. Parametrização de `tKey` via variável de ambiente `VITE_SESSION_TKEY` com fallback.
+4. Correção do parser de produto para propagar `urlImagem` em `activityData.ts`.
+5. Extração do hook compartilhado de carga e refresh das atividades.
+6. Ajuste de dependência de `useMemo` e redução de casts repetidos em `ProductList.tsx`.
+
+## ⚠️ 8. Pontos de Atenção e Próximos Passos
+
+1. `ProductList.tsx` ainda concentra muitos comportamentos e pode ser fatiado em hooks e subcomponentes.
+2. O `tsconfig.app.json` pode evoluir para `strict: true` de forma gradual.
+3. A convenção de nomenclatura pode ser formalizada em regra simples de projeto.
+4. O `README.md` atual está desatualizado em relação ao comportamento real da aplicação.
+
+## ✅ 9. Conclusão
+
+A base atual está funcional e com boa direção para offline-first. Com os ajustes aplicados, houve melhora na previsibilidade de tipos, redução de duplicação e avanço de organização arquitetural sem alterar regras de negócio. A evolução natural é modularizar progressivamente o fluxo de produtos para aumentar legibilidade, testabilidade e velocidade de manutenção.
