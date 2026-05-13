@@ -23,11 +23,6 @@ const buildSessionValidationUrl = (baseUrl: string) => {
   return `${normalized}/bdoserver2.7/odwctrl?action=getParameters&apelido=${SESSION_APELIDO}&scriptFunction=getSession&tKey=${SESSION_TKEY}`
 }
 
-const buildSessionScriptUrl = (baseUrl: string, scriptFunction: string) => {
-  const normalized = normalizeBaseUrl(baseUrl)
-  return `${normalized}/bdoserver2.7/odwctrl?action=getParameters&apelido=${SESSION_APELIDO}&scriptFunction=${scriptFunction}&tKey=${SESSION_TKEY}`
-}
-
 const buildLoginUrl = (baseUrl: string) => {
   const normalized = normalizeBaseUrl(baseUrl)
   return `${normalized}/bdoserver2.7/odwctrl`
@@ -99,7 +94,7 @@ export const login = async (
 export const logout = async (
   baseUrl = API_BASE_URL
 ) => {
-  await fetch(buildSessionScriptUrl(baseUrl, 'logout'), {
+  await fetch(buildLoginUrl(baseUrl) + '?action=logout', {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
