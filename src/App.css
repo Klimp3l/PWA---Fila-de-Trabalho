@@ -561,6 +561,7 @@
 
 .product-details {
   min-width: 0;
+  max-width: 100%;
 }
 
 .product-card-body {
@@ -626,7 +627,8 @@
 
 .product-activity-select {
   margin-top: 8px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
