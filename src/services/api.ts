@@ -3,8 +3,9 @@ const EXEC_TAREFA_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend'
 const SESSION_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend-login'
 const DEFAULT_SESSION_TKEY = '8d5f28f7-1ca4-499f-805f-80a63f2845d7'
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+export const API_BASE_URL = import.meta.env.DEV
+  ? window.location.origin
+  : import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
 const SESSION_TKEY = import.meta.env.VITE_SESSION_TKEY?.trim() || DEFAULT_SESSION_TKEY
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -94,7 +95,14 @@ export const logout = async (
   baseUrl = API_BASE_URL
 ) => {
   await fetch(buildLoginUrl(baseUrl) + '?action=logout', {
-    method: 'GET'
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
   })
 }
 
@@ -104,6 +112,12 @@ export const validarSessao = async (
   const response = await fetch(buildSessionValidationUrl(baseUrl), {
     method: 'GET',
     credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
   })
 
   const parsed = await parseJson(response)
@@ -130,6 +144,7 @@ export const getMercadologicos = async (
   const response = await fetch(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getMercadologicos', {
     method: 'GET',
     credentials: 'include',
+    cache: 'no-store',
   })
 
   const parsed = await parseJson(response)
