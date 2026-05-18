@@ -2,7 +2,7 @@ import { type MouseEvent, type TouchEvent, useCallback, useEffect, useMemo, useR
 import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
-import { DataView, DataViewLayoutOptions } from 'primereact/dataview'
+import { DataViewLayoutOptions } from 'primereact/dataview'
 import { Dropdown, type DropdownChangeEvent } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
 import { InputSwitch, type InputSwitchChangeEvent } from 'primereact/inputswitch'
@@ -54,6 +54,126 @@ import {
 } from './product-list/utils'
 import type { ActivityProductListPreferences } from '../types/workflow'
 import { syncActivitySelectionsInCache } from '../hooks/useAtividadesWithOnlineRefresh'
+
+interface ProductCardItemProps {
+  produto: ProdutoAtividade
+  layout: 'list' | 'grid'
+  index: number
+  isSelected: boolean
+  selectedActivity: number | null
+  activityOptions: Array<{ label: string; value: number }>
+  visibleFields: string[]
+  onToggleSelect: (productKey: string, checked: boolean) => void
+  onActivityChange: (productKey: string, value: number | null) => void
+}
+
+function ProductCardItem({
+  produto,
+  layout,
+  index,
+  isSelected,
+  selectedActivity,
+  activityOptions,
+  visibleFields,
+  onToggleSelect,
+  onActivityChange,
+}: ProductCardItemProps) {
+  const productKey = getProdutoAtividadeKey(produto)
+
+  const handleCardClick = (event: MouseEvent<HTMLElement>) => {
+    const clickTarget = event.target as HTMLElement | null
+
+    if (clickTarget?.closest(CARD_INTERACTIVE_SELECTOR)) {
+      return
+    }
+
+    onToggleSelect(productKey, !isSelected)
+  }
+
+  return (
+    <div
+      className={classNames('product-item', {
+        'product-item-list': layout === 'list',
+        'product-item-grid': layout === 'grid',
+        'product-item-bordered': layout === 'list' && index !== 0,
+      })}
+    >
+      <Card
+        className={classNames('product-card', {
+          'product-card-selected': isSelected,
+        })}
+        onClick={handleCardClick}
+      >
+        <div
+          className={classNames('product-card-content', {
+            'product-card-content-list': layout === 'list',
+            'product-card-content-grid': layout === 'grid',
+          })}
+        >
+          <div className="product-image-wrap">
+            <img
+              className="product-image"
+              src={resolveProductImage(produto)}
+              alt={produto.produto}
+              loading="lazy"
+              onError={(event) => {
+                if (event.currentTarget.src.endsWith('/default.png')) {
+                  return
+                }
+                event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
+              }}
+            />
+          </div>
+          <div className="product-details">
+            <div className="product-card-head">
+              <h3>{produto.produto}</h3>
+            </div>
+            <div className="product-card-body">
+              <p>
+                <FontAwesomeIcon icon={faBarcode} />
+                Código de barras: {produto.codigobarras || '-'}
+              </p>
+              <div
+                className="product-activity-select"
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onTouchStart={(event) => event.stopPropagation()}
+              >
+                <span className="product-activity-select-label">Atividade realizada</span>
+                <Dropdown
+                  inputId={`product-activity-${productKey}`}
+                  value={selectedActivity}
+                  onChange={(event: DropdownChangeEvent) => {
+                    event.originalEvent?.stopPropagation()
+                    onActivityChange(productKey, toDropdownActivityId(event.value))
+                  }}
+                  options={activityOptions}
+                  optionLabel="label"
+                  optionValue="value"
+                  placeholder={
+                    activityOptions.length > 0
+                      ? 'Selecione a atividade'
+                      : 'Sem atividades disponíveis'
+                  }
+                  className="product-activity-dropdown"
+                  showClear={activityOptions.length > 0}
+                  disabled={activityOptions.length === 0}
+                />
+              </div>
+              {visibleFields.map((field) => (
+                <p key={`${produto.idproduto}-${field}`}>
+                  {FIELD_LABELS[field]?.label ?? field}
+                  :{' '}
+                  {formatFieldValue(field, getProdutoFieldValue(produto, field))}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
@@ -393,7 +513,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const areAllPagedProductsSelected = pagedProductKeys.length > 0
     && pagedProductKeys.every((productKey) => selectedProductKeysSet.has(productKey))
 
-  const toggleProductSelection = (productKey: string, checked: boolean) => {
+  const toggleProductSelection = useCallback((productKey: string, checked: boolean) => {
     setSelectedProductKeys((current) => {
       if (checked) {
         if (current.includes(productKey)) {
@@ -404,7 +524,18 @@ export function ProductList({ atividade }: ProductListProps) {
 
       return current.filter((currentKey) => currentKey !== productKey)
     })
-  }
+  }, [])
+
+  const handleActivityChange = useCallback((productKey: string, value: number | null) => {
+    setSelectedActivitiesByProduct((current) => ({
+      ...current,
+      [productKey]: value,
+    }))
+
+    if (value !== null) {
+      setSelectedProductKeys((current) => current.filter((k) => k !== productKey))
+    }
+  }, [])
 
   const togglePageSelection = (checked: boolean) => {
     setSelectedProductKeys((current) => {
@@ -434,6 +565,11 @@ export function ProductList({ atividade }: ProductListProps) {
     })
 
     setSelectedProductKeys((current) => current.filter((productKey) => !selectedKeys.includes(productKey)))
+
+    setShowBulkControls(false)
+    setTimeout(() => {
+      setShowBulkControls(true)
+    }, 1)
   }
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
@@ -690,118 +826,7 @@ export function ProductList({ atividade }: ProductListProps) {
     </div>
   )
 
-  const itemTemplate = (produto: ProdutoAtividade, currentLayout: 'list' | 'grid' = 'list', index = 0) => {
-    if (!produto) {
-      return null
-    }
-
-    const productKey = getProdutoAtividadeKey(produto)
-    const selectedActivity = selectedActivitiesByProduct[productKey] ?? null
-    const isProductSelected = selectedProductKeysSet.has(productKey)
-    const handleCardClick = (event: MouseEvent<HTMLElement>) => {
-      const clickTarget = event.target as HTMLElement | null
-
-      if (clickTarget?.closest(CARD_INTERACTIVE_SELECTOR)) {
-        return
-      }
-
-      toggleProductSelection(productKey, !isProductSelected)
-    }
-
-    return (
-      <div
-        key={`${produto.idwffilatrabalho}-${produto.idproduto}`}
-        className={classNames('product-item', {
-          'product-item-list': currentLayout === 'list',
-          'product-item-grid': currentLayout === 'grid',
-          'product-item-bordered': currentLayout === 'list' && index !== 0,
-        })}
-      >
-        <Card
-          className={classNames('product-card', {
-            'product-card-selected': isProductSelected,
-          })}
-          onClick={handleCardClick}
-        >
-          <div className={classNames('product-card-content', {
-            'product-card-content-list': currentLayout === 'list',
-            'product-card-content-grid': currentLayout === 'grid',
-          })}
-          >
-            <div className="product-image-wrap">
-              <img
-                className="product-image"
-                src={resolveProductImage(produto)}
-                alt={produto.produto}
-                loading="lazy"
-                onError={(event) => {
-                  if (event.currentTarget.src.endsWith('/default.png')) {
-                    return
-                  }
-                  event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
-                }}
-              />
-            </div>
-            <div className="product-details">
-              <div className="product-card-head">
-                <h3>{produto.produto}</h3>
-              </div>
-              <div className="product-card-body">
-                <p>
-                  <FontAwesomeIcon icon={faBarcode} />
-                  Código de barras: {produto.codigobarras || '-'}
-                </p>
-                <div
-                  className="product-activity-select"
-                  onClick={(event) => event.stopPropagation()}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onTouchStart={(event) => event.stopPropagation()}
-                >
-                  <span className="product-activity-select-label">Atividade realizada</span>
-                  <Dropdown
-                    inputId={`product-activity-${productKey}`}
-                    value={selectedActivity}
-                    onChange={(event: DropdownChangeEvent) => {
-                      event.originalEvent?.stopPropagation()
-                      const selectedValue = toDropdownActivityId(event.value)
-                      setSelectedActivitiesByProduct((current) => ({
-                        ...current,
-                        [productKey]: selectedValue,
-                      }))
-
-                      if (selectedValue !== null) {
-                        setSelectedProductKeys((current) => current.filter((currentKey) => currentKey !== productKey))
-                      }
-                    }}
-                    options={activityOptions}
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder={
-                      activityOptions.length > 0
-                        ? 'Selecione a atividade'
-                        : 'Sem atividades disponíveis'
-                    }
-                    className="product-activity-dropdown"
-                    showClear={activityOptions.length > 0}
-                    disabled={activityOptions.length === 0}
-                  />
-                </div>
-                {visibleFields.map((field) => (
-                  <p key={`${produto.idproduto}-${field}`}>
-                    {FIELD_LABELS[field]?.label ?? field}
-                    :{' '}
-                    {formatFieldValue(field, getProdutoFieldValue(produto, field))}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-    )
-  }
-
-  const listTemplate = (
+  const renderProductList = (
     items: ProdutoAtividade[],
     currentLayout: 'list' | 'grid' = 'list',
   ) => (
@@ -810,7 +835,23 @@ export function ProductList({ atividade }: ProductListProps) {
         'product-list-grid': currentLayout === 'grid',
       })}
     >
-      {items.map((produto, index) => itemTemplate(produto, currentLayout, index))}
+      {items.map((produto, index) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        return (
+          <ProductCardItem
+            key={productKey}
+            produto={produto}
+            layout={currentLayout}
+            index={index}
+            isSelected={selectedProductKeysSet.has(productKey)}
+            selectedActivity={selectedActivitiesByProduct[productKey] ?? null}
+            activityOptions={activityOptions}
+            visibleFields={visibleFields}
+            onToggleSelect={toggleProductSelection}
+            onActivityChange={handleActivityChange}
+          />
+        )
+      })}
     </div>
   )
 
@@ -836,14 +877,23 @@ export function ProductList({ atividade }: ProductListProps) {
               itemLabel="produtos encaminhados"
               className="product-progress-overview"
             />
-            <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-              <DataView
-                value={pagedProducts}
-                listTemplate={listTemplate}
-                layout={layout}
-                header={header()}
-                emptyMessage="Nenhum produto encontrado com os filtros atuais."
-              />
+            <div
+              className="p-dataview p-component product-dataview"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="p-dataview-header">
+                {header()}
+              </div>
+              <div className="p-dataview-content">
+                {pagedProducts.length > 0
+                  ? renderProductList(pagedProducts, layout)
+                  : (
+                    <div className="p-dataview-emptymessage">
+                      Nenhum produto encontrado com os filtros atuais.
+                    </div>
+                  )}
+              </div>
             </div>
           </>
         )}
