@@ -1,6 +1,12 @@
 import { getAtividades } from './api'
-import { activityProductSelectionRepository, activitySnapshotRepository } from './offlineDb'
+import {
+  activityProductListPreferencesRepository,
+  activityProductSelectionRepository,
+  activitySnapshotRepository,
+} from './offlineDb'
 import type {
+  ActivityProductListPreferences,
+  ActivityProductListPreferencesSnapshot,
   ActivityProductSelectionsSnapshot,
   ActivitySnapshot,
   AtividadeComProdutos,
@@ -25,6 +31,11 @@ const toNumberOrNull = (value: unknown): number | null => {
 const createEmptySelectionsSnapshot = (): ActivityProductSelectionsSnapshot => ({
   updatedAt: Date.now(),
   selectionsByActivityId: {},
+})
+
+const createEmptyProductListPreferencesSnapshot = (): ActivityProductListPreferencesSnapshot => ({
+  updatedAt: Date.now(),
+  preferencesByActivityId: {},
 })
 
 export const getProdutoAtividadeKey = (produto: Pick<ProdutoAtividade, 'idwffilatrabalho' | 'idwfocorrencia' | 'idproduto'>) =>
@@ -194,6 +205,31 @@ export const saveActivityProductSelections = async (
   }
 
   await activityProductSelectionRepository.save(nextSnapshot)
+}
+
+export const saveActivityProductListPreferences = async (
+  activityId: number,
+  preferences: ActivityProductListPreferences,
+) => {
+  const currentSnapshot = await activityProductListPreferencesRepository.load() ?? createEmptyProductListPreferencesSnapshot()
+  const nextSnapshot: ActivityProductListPreferencesSnapshot = {
+    updatedAt: Date.now(),
+    preferencesByActivityId: {
+      ...currentSnapshot.preferencesByActivityId,
+      [String(activityId)]: preferences,
+    },
+  }
+
+  await activityProductListPreferencesRepository.save(nextSnapshot)
+}
+
+export const loadActivityProductListPreferences = async (activityId: number) => {
+  const snapshot = await activityProductListPreferencesRepository.load()
+  if (!snapshot) {
+    return null
+  }
+
+  return snapshot.preferencesByActivityId[String(activityId)] ?? null
 }
 
 export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComProdutos[]> => {

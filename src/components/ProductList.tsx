@@ -24,7 +24,12 @@ import type {
   ProdutoAtividade,
 } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
-import { getProdutoAtividadeKey, saveActivityProductSelections } from '../services/activityData'
+import {
+  getProdutoAtividadeKey,
+  loadActivityProductListPreferences,
+  saveActivityProductListPreferences,
+  saveActivityProductSelections,
+} from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
   DEFAULT_OPTIONAL_FIELDS,
@@ -47,6 +52,7 @@ import {
   resolveProductImage,
   toDropdownActivityId,
 } from './product-list/utils'
+import type { ActivityProductListPreferences } from '../types/workflow'
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
@@ -76,6 +82,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const touchStartXRef = useRef<number | null>(null)
   const touchStartYRef = useRef<number | null>(null)
+  const hasLoadedPreferencesRef = useRef<number | null>(null)
 
   const products = useMemo(() => atividade?.produtos ?? [], [atividade])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
@@ -200,6 +207,75 @@ export function ProductList({ atividade }: ProductListProps) {
     setSearchField((current) => (availableValues.has(current) ? current : defaultField))
     setSortField((current) => (availableValues.has(current) ? current : defaultField))
   }, [searchableFieldOptions])
+
+  useEffect(() => {
+    if (!atividade) {
+      hasLoadedPreferencesRef.current = null
+      return
+    }
+
+    const currentActivityId = atividade.idwfatividade
+    hasLoadedPreferencesRef.current = null
+
+    let isCancelled = false
+
+    void loadActivityProductListPreferences(currentActivityId)
+      .then((preferences) => {
+        if (isCancelled || hasLoadedPreferencesRef.current !== null) {
+          return
+        }
+
+        const availableFieldValues = new Set(fieldOptions.map((option) => option.value))
+        const availableOrderableFieldValues = new Set(orderableFieldOptions.map((option) => option.value))
+        const defaultSortField = availableOrderableFieldValues.has('produto')
+          ? 'produto'
+          : orderableFieldOptions[0]?.value ?? ''
+
+        if (preferences) {
+          setLayout(preferences.layout)
+          setVisibleFields(
+            preferences.visibleFields.filter((field) => availableFieldValues.has(field)),
+          )
+          setSortDirection(preferences.sortDirection)
+          setSortField(
+            availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
+          )
+        } else {
+          setLayout('grid')
+          setSortDirection(1)
+          setSortField(defaultSortField)
+        }
+
+        hasLoadedPreferencesRef.current = currentActivityId
+      })
+      .catch((error) => {
+        console.warn('[ProductList] Falha ao carregar preferências de visualização da atividade.', error)
+        if (!isCancelled && hasLoadedPreferencesRef.current === null) {
+          hasLoadedPreferencesRef.current = currentActivityId
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [atividade, fieldOptions, orderableFieldOptions])
+
+  useEffect(() => {
+    if (!atividade || hasLoadedPreferencesRef.current !== atividade.idwfatividade) {
+      return
+    }
+
+    const preferences: ActivityProductListPreferences = {
+      layout,
+      visibleFields,
+      sortField,
+      sortDirection,
+    }
+
+    void saveActivityProductListPreferences(atividade.idwfatividade, preferences).catch((error) => {
+      console.warn('[ProductList] Falha ao persistir preferências de visualização da atividade.', error)
+    })
+  }, [atividade, layout, sortDirection, sortField, visibleFields])
 
   useEffect(() => {
     if (!atividade) {
@@ -463,7 +539,7 @@ export function ProductList({ atividade }: ProductListProps) {
           }}
           rowsPerPageOptions={[4, 6, 8, 12]}
           currentPageReportTemplate="({totalRecords}) Página {currentPage} de {totalPages}"
-          template="RowsPerPageDropdown PrevPageLink CurrentPageReport NextPageLink"
+          template="PrevPageLink CurrentPageReport NextPageLink RowsPerPageDropdownRowsPerPageDropdown"
         />
         <DataViewLayoutOptions
           layout={layout}

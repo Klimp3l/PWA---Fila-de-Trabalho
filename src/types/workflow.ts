@@ -71,3 +71,19 @@ export interface ActivityProductSelectionsSnapshot {
    */
   selectionsByActivityId: Record<string, Record<string, number | null>>
 }
+
+export interface ActivityProductListPreferences {
+  layout: 'list' | 'grid'
+  visibleFields: string[]
+  sortField: string
+  sortDirection: 1 | -1
+}
+
+export interface ActivityProductListPreferencesSnapshot {
+  updatedAt: number
+  /**
+   * Chave: id da atividade (`idwfatividade`)
+   * Valor: preferências de exibição da lista de produtos.
+   */
+  preferencesByActivityId: Record<string, ActivityProductListPreferences>
+}
