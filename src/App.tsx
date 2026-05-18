@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { Card } from 'primereact/card'
-import { ProgressSpinner } from 'primereact/progressspinner'
 import './App.css'
-import { validarSessao, login, logout } from './services/api'
+import { SESSION_INVALID_EVENT, login, logout } from './services/api'
 import { AppHeader } from './components/AppHeader'
 import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { ActivityProductsPage } from './pages/ActivityProductsPage'
 import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 
-type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
+type AuthStatus = 'authenticated' | 'unauthenticated'
 
 function App() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('unauthenticated')
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false)
   const [authError, setAuthError] = useState('')
   const handleLogoutSuccess = useCallback(() => {
@@ -23,16 +21,16 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const loadInitialSession = async () => {
-      try {
-        setAuthStatus('checking')
-        const isValidSession = await validarSessao()
-        setAuthStatus(isValidSession ? 'authenticated' : 'unauthenticated')
-      } catch {
-        setAuthStatus('unauthenticated')
-      }
+    const handleSessionInvalid = () => {
+      clearAtividadesCache()
+      setAuthStatus('unauthenticated')
+      setAuthError('Sua sessão expirou. Faça login novamente.')
     }
-    void loadInitialSession()
+
+    window.addEventListener(SESSION_INVALID_EVENT, handleSessionInvalid)
+    return () => {
+      window.removeEventListener(SESSION_INVALID_EVENT, handleSessionInvalid)
+    }
   }, [])
 
   const handleLogin = useCallback(async (usuario: string, senha: string) => {
@@ -44,8 +42,7 @@ function App() {
         senha,
       })
       clearAtividadesCache()
-      const isValidSession = await validarSessao()
-      setAuthStatus(isValidSession ? 'authenticated' : 'unauthenticated')
+      setAuthStatus('authenticated')
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -61,67 +58,51 @@ function App() {
 
   return (
     <main className="app-shell">
-      {authStatus === 'checking'
-        ? (
-          <Card className="panel auth-box auth-box-loading">
-            <h2>Validando sessão</h2>
-            <div className="resource-loading">
-              <ProgressSpinner
-                style={{ width: '24px', height: '24px' }}
-                strokeWidth="6"
-                animationDuration=".9s"
-              />
-              <p>Verificando credenciais salvas no servidor...</p>
-            </div>
-          </Card>
-        )
-        : (
-          <Routes>
-            <Route
-              path="/login"
-              element={(
-                <LoginPage
-                  onLogin={handleLogin}
-                  isSubmittingLogin={isSubmittingLogin}
-                  feedback={authError}
-                  isAuthenticated={authStatus === 'authenticated'}
-                />
-              )}
+      <Routes>
+        <Route
+          path="/login"
+          element={(
+            <LoginPage
+              onLogin={handleLogin}
+              isSubmittingLogin={isSubmittingLogin}
+              feedback={authError}
+              isAuthenticated={authStatus === 'authenticated'}
             />
-            <Route
-              path="/home"
-              element={(
-                <ProtectedRoute
-                  isAuthenticated={authStatus === 'authenticated'}
-                  onLogoutSuccess={handleLogoutSuccess}
-                >
-                  <HomePage />
-                </ProtectedRoute>
-              )}
+          )}
+        />
+        <Route
+          path="/home"
+          element={(
+            <ProtectedRoute
+              isAuthenticated={authStatus === 'authenticated'}
+              onLogoutSuccess={handleLogoutSuccess}
+            >
+              <HomePage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/home/atividade/:activityId"
+          element={(
+            <ProtectedRoute
+              isAuthenticated={authStatus === 'authenticated'}
+              onLogoutSuccess={handleLogoutSuccess}
+              showHeader={false}
+            >
+              <ActivityProductsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="*"
+          element={(
+            <Navigate
+              to={authStatus === 'authenticated' ? '/home' : '/login'}
+              replace
             />
-            <Route
-              path="/home/atividade/:activityId"
-              element={(
-                <ProtectedRoute
-                  isAuthenticated={authStatus === 'authenticated'}
-                  onLogoutSuccess={handleLogoutSuccess}
-                  showHeader={false}
-                >
-                  <ActivityProductsPage />
-                </ProtectedRoute>
-              )}
-            />
-            <Route
-              path="*"
-              element={(
-                <Navigate
-                  to={authStatus === 'authenticated' ? '/home' : '/login'}
-                  replace
-                />
-              )}
-            />
-          </Routes>
-        )}
+          )}
+        />
+      </Routes>
     </main>
   )
 }

@@ -1,12 +1,11 @@
 const DEFAULT_API_BASE_URL = ''
 const EXEC_TAREFA_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend'
-const SESSION_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend-login'
-const DEFAULT_SESSION_TKEY = '8d5f28f7-1ca4-499f-805f-80a63f2845d7'
+const SESSION_INVALID_HEADER = 'odw_redirect'
+export const SESSION_INVALID_EVENT = 'odw:session-invalid'
 
 export const API_BASE_URL = import.meta.env.DEV
   ? window.location.origin
   : import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
-const SESSION_TKEY = import.meta.env.VITE_SESSION_TKEY?.trim() || DEFAULT_SESSION_TKEY
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -16,11 +15,6 @@ const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '')
 const buildExecTarefaUrl = (baseUrl: string) => {
   const normalized = normalizeBaseUrl(baseUrl)
   return `${normalized}/bdoserver2.7/odwctrl?action=execTarefa&apelido=${EXEC_TAREFA_APELIDO}`
-}
-
-const buildSessionValidationUrl = (baseUrl: string) => {
-  const normalized = normalizeBaseUrl(baseUrl)
-  return `${normalized}/bdoserver2.7/odwctrl?action=getParameters&apelido=${SESSION_APELIDO}&scriptFunction=getSession&tKey=${SESSION_TKEY}`
 }
 
 const buildLoginUrl = (baseUrl: string) => {
@@ -49,12 +43,31 @@ export interface LoginResponse {
   msg?: string
 }
 
-interface SessionValidationResponse {
-  success?: unknown
-}
-
 const parseJson = async (response: Response): Promise<unknown> => {
   return response.json() as Promise<unknown>
+}
+
+const isSessionInvalidResponse = (response: Response) => {
+  const redirectHeader = response.headers.get(SESSION_INVALID_HEADER)
+  return typeof redirectHeader === 'string' && redirectHeader.trim() !== ''
+}
+
+const notifySessionInvalid = () => {
+  window.dispatchEvent(new Event(SESSION_INVALID_EVENT))
+}
+
+const fetchWithSessionValidation = async (
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> => {
+  const response = await fetch(input, init)
+
+  if (isSessionInvalidResponse(response)) {
+    notifySessionInvalid()
+    throw new Error('Sessão inválida. Faça login novamente.')
+  }
+
+  return response
 }
 
 export const login = async (
@@ -68,7 +81,7 @@ export const login = async (
     action: 'login'
   })
 
-  const response = await fetch(buildLoginUrl(baseUrl), {
+  const response = await fetchWithSessionValidation(buildLoginUrl(baseUrl), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -94,7 +107,7 @@ export const login = async (
 export const logout = async (
   baseUrl = API_BASE_URL
 ) => {
-  await fetch(buildLoginUrl(baseUrl) + '?action=logout', {
+  await fetchWithSessionValidation(buildLoginUrl(baseUrl) + '?action=logout', {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
@@ -104,31 +117,12 @@ export const logout = async (
       Expires: '0',
     },
   })
-}
-
-export const validarSessao = async (
-  baseUrl = API_BASE_URL
-): Promise<boolean> => {
-  const response = await fetch(buildSessionValidationUrl(baseUrl), {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-    headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      Pragma: 'no-cache',
-      Expires: '0',
-    },
-  })
-
-  const parsed = await parseJson(response)
-  const parsedRecord = isRecord(parsed) ? (parsed as SessionValidationResponse) : {}
-  return Boolean(parsedRecord.success)
 }
 
 export const getAtividades = async (
   baseUrl = API_BASE_URL,
 ): Promise<unknown> => {
-  const response = await fetch(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getAtividades', {
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getAtividades', {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
@@ -141,7 +135,7 @@ export const getAtividades = async (
 export const getMercadologicos = async (
   baseUrl = API_BASE_URL,
 ): Promise<unknown> => {
-  const response = await fetch(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getMercadologicos', {
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getMercadologicos', {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
