@@ -11,12 +11,16 @@ import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 import { clearOfflineActivityData } from './services/offlineDb'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
+const AUTH_STORAGE_KEY = 'odw:is-authenticated'
 
 function App() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('unauthenticated')
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
+    localStorage.getItem(AUTH_STORAGE_KEY) === 'true' ? 'authenticated' : 'unauthenticated',
+  )
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false)
   const [authError, setAuthError] = useState('')
   const handleLogoutSuccess = useCallback(() => {
+    localStorage.removeItem(AUTH_STORAGE_KEY)
     setAuthStatus('unauthenticated')
     setAuthError('')
   }, [])
@@ -25,6 +29,7 @@ function App() {
     const handleSessionInvalid = () => {
       clearAtividadesCache()
       void clearOfflineActivityData()
+      localStorage.removeItem(AUTH_STORAGE_KEY)
       setAuthStatus('unauthenticated')
       setAuthError('Sua sessão expirou. Faça login novamente.')
     }
@@ -45,6 +50,7 @@ function App() {
       })
       clearAtividadesCache()
       await clearOfflineActivityData()
+      localStorage.setItem(AUTH_STORAGE_KEY, 'true')
       setAuthStatus('authenticated')
     } catch (error) {
       const errorMessage =

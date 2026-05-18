@@ -539,7 +539,7 @@ export function ProductList({ atividade }: ProductListProps) {
           }}
           rowsPerPageOptions={[4, 6, 8, 12]}
           currentPageReportTemplate="({totalRecords}) Página {currentPage} de {totalPages}"
-          template="PrevPageLink CurrentPageReport NextPageLink RowsPerPageDropdownRowsPerPageDropdown"
+          template="PrevPageLink CurrentPageReport NextPageLink RowsPerPageDropdown"
         />
         <DataViewLayoutOptions
           layout={layout}
