@@ -52,6 +52,11 @@ export const activitySnapshotRepository = {
     const record = await db.get('activitySnapshots', ACTIVITIES_SNAPSHOT_KEY)
     return record?.value ?? null
   },
+
+  async clear() {
+    const db = await dbPromise
+    await db.delete('activitySnapshots', ACTIVITIES_SNAPSHOT_KEY)
+  },
 }
 
 export const activityProductSelectionRepository = {
@@ -68,4 +73,16 @@ export const activityProductSelectionRepository = {
     const record = await db.get('activityProductSelections', ACTIVITY_PRODUCT_SELECTIONS_KEY)
     return record?.value ?? null
   },
+
+  async clear() {
+    const db = await dbPromise
+    await db.delete('activityProductSelections', ACTIVITY_PRODUCT_SELECTIONS_KEY)
+  },
+}
+
+export const clearOfflineActivityData = async () => {
+  await Promise.all([
+    activitySnapshotRepository.clear(),
+    activityProductSelectionRepository.clear(),
+  ])
 }

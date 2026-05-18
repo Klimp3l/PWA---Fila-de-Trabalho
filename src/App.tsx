@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { ActivityProductsPage } from './pages/ActivityProductsPage'
 import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
+import { clearOfflineActivityData } from './services/offlineDb'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
 
@@ -23,6 +24,7 @@ function App() {
   useEffect(() => {
     const handleSessionInvalid = () => {
       clearAtividadesCache()
+      void clearOfflineActivityData()
       setAuthStatus('unauthenticated')
       setAuthError('Sua sessão expirou. Faça login novamente.')
     }
@@ -42,6 +44,7 @@ function App() {
         senha,
       })
       clearAtividadesCache()
+      await clearOfflineActivityData()
       setAuthStatus('authenticated')
     } catch (error) {
       const errorMessage =
@@ -128,6 +131,7 @@ function ProtectedRoute({
       setIsSubmittingLogout(true)
       await logout()
       clearAtividadesCache()
+      await clearOfflineActivityData()
       onLogoutSuccess()
     } catch (error) {
       const errorMessage =
