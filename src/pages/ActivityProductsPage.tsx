@@ -1,16 +1,27 @@
 import { useMemo } from 'react'
 import { ProgressSpinner } from 'primereact/progressspinner'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ProductList } from '../components/ProductList'
 import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { Button } from 'primereact/button'
 import { useAtividadesWithOnlineRefresh } from '../hooks/useAtividadesWithOnlineRefresh'
+import type { AtividadeComProdutos } from '../types/workflow'
+
+interface ActivityProductsPageLocationState {
+  selectedActivity?: AtividadeComProdutos | null
+}
 
 export function ActivityProductsPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { activityId } = useParams()
-  const { atividades, isLoading } = useAtividadesWithOnlineRefresh('ActivityProductsPage')
+  const locationState = (location.state ?? null) as ActivityProductsPageLocationState | null
+  const selectedActivityFromNavigation = locationState?.selectedActivity ?? null
+  const shouldLoadAtividades = selectedActivityFromNavigation === null
+  const { atividades, isLoading } = useAtividadesWithOnlineRefresh('ActivityProductsPage', {
+    enabled: shouldLoadAtividades,
+  })
 
   const activityIdAsNumber = useMemo(() => {
     if (!activityId) {
@@ -22,12 +33,20 @@ export function ActivityProductsPage() {
   }, [activityId])
 
   const selectedActivity = useMemo(() => {
+    if (
+      selectedActivityFromNavigation
+      && activityIdAsNumber !== null
+      && selectedActivityFromNavigation.idwfatividade === activityIdAsNumber
+    ) {
+      return selectedActivityFromNavigation
+    }
+
     if (activityIdAsNumber === null) {
       return null
     }
 
     return atividades.find((atividade) => atividade.idwfatividade === activityIdAsNumber) ?? null
-  }, [activityIdAsNumber, atividades])
+  }, [activityIdAsNumber, atividades, selectedActivityFromNavigation])
 
   if (isLoading) {
     return (

@@ -33,6 +33,7 @@ function App() {
     }
     void loadInitialSession()
   }, [])
+
   const handleLogin = useCallback(async (usuario: string, senha: string) => {
     try {
       setIsSubmittingLogin(true)

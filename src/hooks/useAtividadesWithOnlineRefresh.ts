@@ -8,9 +8,17 @@ interface UseAtividadesWithOnlineRefreshResult {
   reloadAtividades: () => Promise<void>
 }
 
-export function useAtividadesWithOnlineRefresh(logContext: string): UseAtividadesWithOnlineRefreshResult {
+interface UseAtividadesWithOnlineRefreshOptions {
+  enabled?: boolean
+}
+
+export function useAtividadesWithOnlineRefresh(
+  logContext: string,
+  options?: UseAtividadesWithOnlineRefreshOptions
+): UseAtividadesWithOnlineRefreshResult {
+  const shouldLoad = options?.enabled ?? true
   const [atividades, setAtividades] = useState<AtividadeComProdutos[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(shouldLoad)
 
   const reloadAtividades = useCallback(async () => {
     const parsedAtividades = await loadAtividadesWithOfflineFallback()
@@ -18,6 +26,11 @@ export function useAtividadesWithOnlineRefresh(logContext: string): UseAtividade
   }, [])
 
   useEffect(() => {
+    if (!shouldLoad) {
+      setIsLoading(false)
+      return
+    }
+
     const loadAtividades = async () => {
       setIsLoading(true)
 
@@ -46,7 +59,7 @@ export function useAtividadesWithOnlineRefresh(logContext: string): UseAtividade
     return () => {
       window.removeEventListener('online', handleOnline)
     }
-  }, [logContext, reloadAtividades])
+  }, [logContext, reloadAtividades, shouldLoad])
 
   return {
     atividades,

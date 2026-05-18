@@ -73,6 +73,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const [bulkActivityId, setBulkActivityId] = useState<number | null>(null)
   const [showForwardedProducts, setShowForwardedProducts] = useState(false)
   const [first, setFirst] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const touchStartXRef = useRef<number | null>(null)
   const touchStartYRef = useRef<number | null>(null)
 
@@ -270,29 +271,29 @@ export function ProductList({ atividade }: ProductListProps) {
   ])
 
   const pagedProducts = useMemo(
-    () => filteredAndSortedProducts.slice(first, first + DEFAULT_ROWS_PER_PAGE),
-    [filteredAndSortedProducts, first],
+    () => filteredAndSortedProducts.slice(first, first + rowsPerPage),
+    [filteredAndSortedProducts, first, rowsPerPage],
   )
 
   useEffect(() => {
     const lastPageStart = Math.max(
       0,
-      Math.floor((filteredAndSortedProducts.length - 1) / DEFAULT_ROWS_PER_PAGE) * DEFAULT_ROWS_PER_PAGE,
+      Math.floor((filteredAndSortedProducts.length - 1) / rowsPerPage) * rowsPerPage,
     )
     setFirst((current) => Math.min(current, lastPageStart))
-  }, [filteredAndSortedProducts.length])
+  }, [filteredAndSortedProducts.length, rowsPerPage])
 
   const goToPreviousPage = () => {
-    setFirst((current) => Math.max(0, current - DEFAULT_ROWS_PER_PAGE))
+    setFirst((current) => Math.max(0, current - rowsPerPage))
   }
 
   const goToNextPage = () => {
     setFirst((current) => {
-      if (current + DEFAULT_ROWS_PER_PAGE >= filteredAndSortedProducts.length) {
+      if (current + rowsPerPage >= filteredAndSortedProducts.length) {
         return current
       }
 
-      return current + DEFAULT_ROWS_PER_PAGE
+      return current + rowsPerPage
     })
   }
 
@@ -454,11 +455,15 @@ export function ProductList({ atividade }: ProductListProps) {
         </div>
         <Paginator
           first={first}
-          rows={DEFAULT_ROWS_PER_PAGE}
+          rows={rowsPerPage}
           totalRecords={filteredAndSortedProducts.length}
-          onPageChange={(event) => setFirst(event.first)}
+          onPageChange={(event) => {
+            setFirst(event.first)
+            setRowsPerPage(event.rows)
+          }}
+          rowsPerPageOptions={[4, 6, 8, 12]}
           currentPageReportTemplate="({totalRecords}) Página {currentPage} de {totalPages}"
-          template="PrevPageLink CurrentPageReport NextPageLink"
+          template="RowsPerPageDropdown PrevPageLink CurrentPageReport NextPageLink"
         />
         <DataViewLayoutOptions
           layout={layout}

@@ -4,6 +4,7 @@ import { ActivityCardList } from '../components/ActivityCardList'
 import { faPersonWalking } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useAtividadesWithOnlineRefresh } from '../hooks/useAtividadesWithOnlineRefresh'
+import type { AtividadeComProdutos } from '../types/workflow'
 
 export function HomePage() {
   const { atividades, isLoading } = useAtividadesWithOnlineRefresh('HomePage')
@@ -29,7 +30,15 @@ export function HomePage() {
               atividades={atividades}
               selectedActivityId={null}
               onSelect={(idAtividade) => {
-                navigate(`/home/atividade/${idAtividade}`)
+                const selectedActivity = atividades.find(
+                  (atividade) => atividade.idwfatividade === idAtividade
+                ) ?? null
+
+                navigate(`/home/atividade/${idAtividade}`, {
+                  state: {
+                    selectedActivity: selectedActivity as AtividadeComProdutos | null,
+                  },
+                })
               }}
             />
           </>
