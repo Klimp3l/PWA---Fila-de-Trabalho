@@ -1,18 +1,32 @@
 import { ProgressSpinner } from 'primereact/progressspinner'
+import { Button } from 'primereact/button'
 import { useNavigate } from 'react-router-dom'
 import { ActivityCardList } from '../components/ActivityCardList'
-import { faPersonWalking } from '@fortawesome/free-solid-svg-icons'
+import { faArrowsRotate, faPersonWalking } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { useAtividadesWithOnlineRefresh } from '../hooks/useAtividadesWithOnlineRefresh'
 import type { AtividadeComProdutos } from '../types/workflow'
 
 export function HomePage() {
-  const { atividades, isLoading } = useAtividadesWithOnlineRefresh('HomePage')
+  const { atividades, isLoading, reloadAtividades } = useAtividadesWithOnlineRefresh('HomePage')
   const navigate = useNavigate()
 
   return (
     <section>
-      <h3><FontAwesomeIcon icon={faPersonWalking} /> Minhas Atividades</h3>
+      <div className="home-page-header">
+        <h3><FontAwesomeIcon icon={faPersonWalking} /> Minhas Atividades</h3>
+        <Button
+          type="button"
+          text
+          onClick={() => {
+            void reloadAtividades()
+          }}
+          disabled={isLoading}
+        >
+          <FontAwesomeIcon icon={faArrowsRotate} />
+          <span>Atualizar</span>
+        </Button>
+      </div>
       {isLoading
         ? (
           <section className="panel resource-loading">

@@ -9,6 +9,7 @@ import { AppHeader } from './components/AppHeader'
 import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { ActivityProductsPage } from './pages/ActivityProductsPage'
+import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
 
@@ -42,6 +43,7 @@ function App() {
         usuario: usuario.trim(),
         senha,
       })
+      clearAtividadesCache()
       const isValidSession = await validarSessao()
       setAuthStatus(isValidSession ? 'authenticated' : 'unauthenticated')
     } catch (error) {
@@ -144,6 +146,7 @@ function ProtectedRoute({
     try {
       setIsSubmittingLogout(true)
       await logout()
+      clearAtividadesCache()
       onLogoutSuccess()
     } catch (error) {
       const errorMessage =

@@ -246,6 +246,12 @@
   gap: 10px;
 }
 
+.home-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .activity-card-list {
   display: grid;
   gap: 10px;

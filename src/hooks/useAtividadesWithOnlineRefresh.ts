@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { loadAtividadesWithOfflineFallback } from '../services/activityData'
 import type { AtividadeComProdutos } from '../types/workflow'
 
+let atividadesCache: AtividadeComProdutos[] | null = null
+
+export const clearAtividadesCache = () => {
+  atividadesCache = null
+}
+
 interface UseAtividadesWithOnlineRefreshResult {
   atividades: AtividadeComProdutos[]
   isLoading: boolean
@@ -17,13 +23,23 @@ export function useAtividadesWithOnlineRefresh(
   options?: UseAtividadesWithOnlineRefreshOptions
 ): UseAtividadesWithOnlineRefreshResult {
   const shouldLoad = options?.enabled ?? true
-  const [atividades, setAtividades] = useState<AtividadeComProdutos[]>([])
-  const [isLoading, setIsLoading] = useState(shouldLoad)
+  const [atividades, setAtividades] = useState<AtividadeComProdutos[]>(() => atividadesCache ?? [])
+  const [isLoading, setIsLoading] = useState(shouldLoad && atividadesCache === null)
+
+  const fetchAtividades = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const parsedAtividades = await loadAtividadesWithOfflineFallback()
+      atividadesCache = parsedAtividades
+      setAtividades(parsedAtividades)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   const reloadAtividades = useCallback(async () => {
-    const parsedAtividades = await loadAtividadesWithOfflineFallback()
-    setAtividades(parsedAtividades)
-  }, [])
+    await fetchAtividades()
+  }, [fetchAtividades])
 
   useEffect(() => {
     if (!shouldLoad) {
@@ -31,35 +47,16 @@ export function useAtividadesWithOnlineRefresh(
       return
     }
 
-    const loadAtividades = async () => {
-      setIsLoading(true)
-
-      try {
-        await reloadAtividades()
-      } finally {
-        setIsLoading(false)
-      }
+    if (atividadesCache !== null) {
+      setAtividades(atividadesCache)
+      setIsLoading(false)
+      return
     }
 
-    const refreshAtividades = async () => {
-      try {
-        await reloadAtividades()
-      } catch (error) {
-        console.warn(`[${logContext}] Falha ao atualizar atividades após reconexão.`, error)
-      }
-    }
-
-    const handleOnline = () => {
-      void refreshAtividades()
-    }
-
-    void loadAtividades()
-    window.addEventListener('online', handleOnline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-    }
-  }, [logContext, reloadAtividades, shouldLoad])
+    void fetchAtividades().catch((error) => {
+      console.warn(`[${logContext}] Falha ao carregar atividades.`, error)
+    })
+  }, [fetchAtividades, logContext, shouldLoad])
 
   return {
     atividades,
