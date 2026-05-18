@@ -8,6 +8,37 @@ export const clearAtividadesCache = () => {
   atividadesCache = null
 }
 
+export const syncActivitySelectionsInCache = (
+  activityId: number,
+  selectionsByProduct: Record<string, number | null>,
+) => {
+  if (atividadesCache === null) {
+    return
+  }
+
+  atividadesCache = atividadesCache.map((atividade) => {
+    if (atividade.idwfatividade !== activityId) {
+      return atividade
+    }
+
+    return {
+      ...atividade,
+      produtos: atividade.produtos.map((produto) => {
+        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+
+        if (!(productKey in selectionsByProduct)) {
+          return produto
+        }
+
+        return {
+          ...produto,
+          idwfatividaderealizada: selectionsByProduct[productKey] ?? null,
+        }
+      }),
+    }
+  })
+}
+
 interface UseAtividadesWithOnlineRefreshResult {
   atividades: AtividadeComProdutos[]
   isLoading: boolean

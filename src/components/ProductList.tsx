@@ -53,6 +53,7 @@ import {
   toDropdownActivityId,
 } from './product-list/utils'
 import type { ActivityProductListPreferences } from '../types/workflow'
+import { syncActivitySelectionsInCache } from '../hooks/useAtividadesWithOnlineRefresh'
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
@@ -285,6 +286,7 @@ export function ProductList({ atividade }: ProductListProps) {
     void saveActivityProductSelections(atividade.idwfatividade, selectedActivitiesByProduct).catch((error) => {
       console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
     })
+    syncActivitySelectionsInCache(atividade.idwfatividade, selectedActivitiesByProduct)
   }, [atividade, selectedActivitiesByProduct])
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
