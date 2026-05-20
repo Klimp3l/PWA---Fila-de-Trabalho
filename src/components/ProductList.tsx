@@ -2,9 +2,11 @@ import { memo, type MouseEvent, useCallback, useDeferredValue, useEffect, useMem
 import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
 import { Carousel } from 'primereact/carousel'
+import { Calendar } from 'primereact/calendar'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { DataViewLayoutOptions } from 'primereact/dataview'
 import { Dropdown, type DropdownChangeEvent } from 'primereact/dropdown'
+import { InputNumber, type InputNumberValueChangeEvent } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
 import { InputSwitch, type InputSwitchChangeEvent } from 'primereact/inputswitch'
 import { Message } from 'primereact/message'
@@ -12,8 +14,7 @@ import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect
 import { classNames } from 'primereact/utils'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
-  faBarcode,
-  faGenderless,
+  faBroom,
   faBuilding,
   faLayerGroup,
   faList,
@@ -22,6 +23,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import type {
   AtividadeComProdutos,
+  AtividadeProdutoColumn,
   ProdutoAtividade,
 } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
@@ -33,14 +35,11 @@ import {
 } from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
-  DEFAULT_OPTIONAL_FIELDS,
   DEFAULT_PRODUCT_IMAGE,
   DEFAULT_ROWS_PER_PAGE,
-  EXCLUDED_ORDERABLE_FIELDS,
-  EXCLUDED_SEARCHABLE_FIELDS,
-  EXCLUDED_SELECT_FIELDS,
-  FIELD_LABELS,
+  ALWAYS_VISIBLE_FIELDS,
   MARKET_FIELD_INDEX,
+  MARKET_FIELD_LABELS,
   MARKET_FIELD_KEYS,
   type MarketFieldKey,
 } from './product-list/config'
@@ -64,6 +63,7 @@ interface ProductCardItemProps {
   selectedActivity: number | null
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
+  fieldConfigByKey: Record<string, AtividadeProdutoColumn>
   onToggleSelect: (productKey: string, checked: boolean) => void
 }
 
@@ -76,6 +76,7 @@ const ProductCardItem = memo(function ProductCardItem({
   selectedActivity,
   activityOptions,
   visibleFields,
+  fieldConfigByKey,
   onToggleSelect,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
@@ -148,20 +149,12 @@ const ProductCardItem = memo(function ProductCardItem({
                 <h3>{produto.produto}</h3>
               </div>
               <div className="product-card-body">
-                <p>
-                  <FontAwesomeIcon icon={faGenderless} />
-                  Código: {produto.idproduto || '-'}
-                </p>
-                <p>
-                  <FontAwesomeIcon icon={faBarcode} />
-                  Código de barras: {produto.codigobarras || '-'}
-                </p>
-
                 {visibleFields.map((field) => (
                   <p key={`${produto.idproduto}-${field}`}>
-                    {FIELD_LABELS[field]?.label ?? field}
+                    {fieldConfigByKey[field]?.icon && <i className={fieldConfigByKey[field].icon} aria-hidden="true" />}
+                    {fieldConfigByKey[field]?.label || field}
                     :{' '}
-                    {formatFieldValue(field, getProdutoFieldValue(produto, field))}
+                    {formatFieldValue(fieldConfigByKey[field], getProdutoFieldValue(produto, field))}
                   </p>
                 ))}
               </div>
@@ -177,6 +170,45 @@ interface ProductListProps {
   atividade: AtividadeComProdutos | null
 }
 
+type SearchFilterValue = string | number | Date | string[] | boolean | null
+
+const normalizeBooleanValue = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true
+    }
+    if (value === 0) {
+      return false
+    }
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'sim', 's'].includes(normalized)) {
+      return true
+    }
+    if (['false', '0', 'nao', 'não', 'n'].includes(normalized)) {
+      return false
+    }
+  }
+  return null
+}
+
+const formatDateForComparison = (value: unknown) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear()
+    const month = `${value.getMonth() + 1}`.padStart(2, '0')
+    const day = `${value.getDate()}`.padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  if (typeof value === 'string') {
+    return value.slice(0, 10)
+  }
+  return ''
+}
+
 export function ProductList({ atividade }: ProductListProps) {
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
   const [visibleFields, setVisibleFields] = useState<string[]>([])
@@ -184,7 +216,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const [showMarketFilters, setShowMarketFilters] = useState(false)
   const [showBulkControls, setShowBulkControls] = useState(true)
   const [searchField, setSearchField] = useState('produto')
-  const [searchValue, setSearchValue] = useState('')
+  const [searchValue, setSearchValue] = useState<SearchFilterValue>('')
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
@@ -204,37 +236,79 @@ export function ProductList({ atividade }: ProductListProps) {
 
   const products = useMemo(() => atividade?.produtos ?? [], [atividade])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
+  const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
   const allFieldOptions = useMemo(() => {
-    const allFields = new Set<string>()
-
-    products.forEach((produto) => {
-      Object.keys(produto).forEach((field) => {
-        allFields.add(field)
-      })
-    })
-
-    return Array.from(allFields)
+    return Object.entries(backendColumns)
       .map((field) => ({
-        label: FIELD_LABELS[field]?.label ?? field,
-        value: field,
+        label: field[1].label ?? field[0],
+        value: field[0],
+        type: field[1].type,
+        options: field[1].options,
+        searchable: field[1].searchable,
+        sortable: field[1].sortable,
       }))
       .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
-  }, [products])
+  }, [backendColumns])
+  const fieldConfigByKey = useMemo(
+    () => backendColumns,
+    [backendColumns],
+  )
+  const cardVisibleFields = useMemo(
+    () => visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
+    [visibleFields],
+  )
 
   const fieldOptions = useMemo(
-    () => allFieldOptions.filter((option) => !EXCLUDED_SELECT_FIELDS.has(option.value)),
+    () => allFieldOptions.filter((option) => !ALWAYS_VISIBLE_FIELDS.includes(option.value)),
     [allFieldOptions],
   )
 
   const searchableFieldOptions = useMemo(
-    () => allFieldOptions.filter((option) => !EXCLUDED_SEARCHABLE_FIELDS.has(option.value)),
+    () => allFieldOptions.filter((option) => option.searchable),
     [allFieldOptions],
   )
 
   const orderableFieldOptions = useMemo(
-    () => searchableFieldOptions.filter((option) => !EXCLUDED_ORDERABLE_FIELDS.has(option.value)),
+    () => allFieldOptions.filter((option) => option.sortable),
+    [allFieldOptions],
+  )
+  const searchableFieldMap = useMemo(
+    () => searchableFieldOptions.reduce<Record<string, typeof searchableFieldOptions[number]>>((accumulator, option) => {
+      accumulator[option.value] = option
+      return accumulator
+    }, {}),
     [searchableFieldOptions],
   )
+  const selectedSearchFieldConfig = fieldConfigByKey[searchField]
+  const selectedSearchFieldType = selectedSearchFieldConfig?.type ?? 'input'
+  const searchSelectOptions = useMemo(() => {
+    if (!searchField) {
+      return []
+    }
+    const config = fieldConfigByKey[searchField]
+    if (!config) {
+      return []
+    }
+
+    if ((config.type === 'select' || config.type === 'multipleSelect') && Array.isArray(config.options) && config.options.length > 0) {
+      return config.options.map((option) => ({ label: option, value: option }))
+    }
+
+    if (config.type !== 'select' && config.type !== 'multipleSelect') {
+      return []
+    }
+
+    const values = new Set<string>()
+    products.forEach((produto) => {
+      const value = String(getProdutoFieldValue(produto, searchField) ?? '').trim()
+      if (value) {
+        values.add(value)
+      }
+    })
+    return Array.from(values)
+      .sort((first, second) => first.localeCompare(second, 'pt-BR', { sensitivity: 'base' }))
+      .map((value) => ({ label: value, value }))
+  }, [fieldConfigByKey, products, searchField])
 
   const marketFilterOptions = useMemo(() => {
     return MARKET_FIELD_KEYS.reduce((accumulator, field) => {
@@ -297,13 +371,13 @@ export function ProductList({ atividade }: ProductListProps) {
     const availableValues = new Set(fieldOptions.map((option) => option.value))
 
     setVisibleFields((current) => {
-      const filteredCurrent = current.filter((field) => availableValues.has(field))
+      const filteredCurrent = current.filter((field) => availableValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field))
 
-      if (filteredCurrent.length > 0) {
+      if (filteredCurrent.length > 0 || fieldOptions.length === 0) {
         return filteredCurrent
       }
 
-      return DEFAULT_OPTIONAL_FIELDS.filter((field) => availableValues.has(field))
+      return fieldOptions.slice(0, 2).map((field) => field.value)
     })
   }, [fieldOptions])
 
@@ -322,9 +396,65 @@ export function ProductList({ atividade }: ProductListProps) {
     const availableValues = new Set(searchableFieldOptions.map((option) => option.value))
     const defaultField = availableValues.has('produto') ? 'produto' : searchableFieldOptions[0]?.value ?? ''
 
-    setSearchField((current) => (availableValues.has(current) ? current : defaultField))
-    setSortField((current) => (availableValues.has(current) ? current : defaultField))
+    setSearchField((current) => {
+      const next = availableValues.has(current) ? current : defaultField
+      if (next !== current) {
+        setSearchValue('')
+      }
+      return next
+    })
   }, [searchableFieldOptions])
+
+  useEffect(() => {
+    if (!searchField) {
+      setSearchValue('')
+      return
+    }
+
+    const fieldType = selectedSearchFieldType
+    if (fieldType === 'multipleSelect') {
+      if (!Array.isArray(searchValue)) {
+        setSearchValue([])
+      }
+      return
+    }
+    if (fieldType === 'input') {
+      if (typeof searchValue !== 'string') {
+        setSearchValue('')
+      }
+      return
+    }
+    if (fieldType === 'inputNumber') {
+      if (typeof searchValue !== 'number' && searchValue !== null) {
+        setSearchValue(null)
+      }
+      return
+    }
+    if (fieldType === 'date') {
+      if (!(searchValue instanceof Date) && searchValue !== null) {
+        setSearchValue(null)
+      }
+      return
+    }
+    if (fieldType === 'select') {
+      if (typeof searchValue !== 'string' && searchValue !== null) {
+        setSearchValue(null)
+      }
+      return
+    }
+    if (fieldType === 'boolean') {
+      if (typeof searchValue !== 'boolean' && searchValue !== null) {
+        setSearchValue(null)
+      }
+    }
+  }, [searchField, searchValue, selectedSearchFieldType])
+
+  useEffect(() => {
+    const availableValues = new Set(orderableFieldOptions.map((option) => option.value))
+    const defaultField = availableValues.has('produto') ? 'produto' : orderableFieldOptions[0]?.value ?? ''
+
+    setSortField((current) => (availableValues.has(current) ? current : defaultField))
+  }, [orderableFieldOptions])
 
   useEffect(() => {
     if (!atividade) {
@@ -352,7 +482,9 @@ export function ProductList({ atividade }: ProductListProps) {
         if (preferences) {
           setLayout(preferences.layout)
           setVisibleFields(
-            preferences.visibleFields.filter((field) => availableFieldValues.has(field)),
+            preferences.visibleFields.filter(
+              (field) => availableFieldValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field),
+            ),
           )
           setSortDirection(preferences.sortDirection)
           setSortField(
@@ -385,7 +517,7 @@ export function ProductList({ atividade }: ProductListProps) {
 
     const preferences: ActivityProductListPreferences = {
       layout,
-      visibleFields,
+      visibleFields: visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
       sortField,
       sortDirection,
     }
@@ -433,7 +565,18 @@ export function ProductList({ atividade }: ProductListProps) {
   )
 
   const filteredAndSortedProducts = useMemo(() => {
-    const normalizedSearch = searchValue.trim().toLocaleLowerCase('pt-BR')
+    const hasSearchValue = (() => {
+      if (!searchField) {
+        return false
+      }
+      if (selectedSearchFieldType === 'multipleSelect') {
+        return Array.isArray(searchValue) && searchValue.length > 0
+      }
+      if (selectedSearchFieldType === 'input') {
+        return typeof searchValue === 'string' && searchValue.trim() !== ''
+      }
+      return searchValue !== null && searchValue !== ''
+    })()
 
     const filteredByMarket = products.filter((produto) => {
       return MARKET_FIELD_KEYS.every((field) => {
@@ -448,11 +591,42 @@ export function ProductList({ atividade }: ProductListProps) {
       })
     })
 
-    const filteredBySearch = !normalizedSearch || !searchField
+    const filteredBySearch = !searchField || !hasSearchValue
       ? filteredByMarket
       : filteredByMarket.filter((produto) => {
         const fieldValue = getProdutoFieldValue(produto, searchField)
-        return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+        if (selectedSearchFieldType === 'input') {
+          const normalizedSearch = String(searchValue ?? '').trim().toLocaleLowerCase('pt-BR')
+          return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+        }
+        if (selectedSearchFieldType === 'inputNumber') {
+          const target = Number(searchValue)
+          if (!Number.isFinite(target)) {
+            return true
+          }
+          return Number(fieldValue) === target
+        }
+        if (selectedSearchFieldType === 'date') {
+          return formatDateForComparison(fieldValue) === formatDateForComparison(searchValue)
+        }
+        if (selectedSearchFieldType === 'select') {
+          return String(fieldValue ?? '').trim() === String(searchValue ?? '').trim()
+        }
+        if (selectedSearchFieldType === 'multipleSelect') {
+          if (!Array.isArray(searchValue)) {
+            return true
+          }
+          return searchValue.includes(String(fieldValue ?? '').trim())
+        }
+        if (selectedSearchFieldType === 'boolean') {
+          const boolSearch = normalizeBooleanValue(searchValue)
+          const boolField = normalizeBooleanValue(fieldValue)
+          if (boolSearch === null || boolField === null) {
+            return false
+          }
+          return boolField === boolSearch
+        }
+        return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(String(searchValue ?? '').toLocaleLowerCase('pt-BR'))
       })
 
     const filtered = showForwardedProducts
@@ -466,12 +640,14 @@ export function ProductList({ atividade }: ProductListProps) {
     return [...filtered].sort((first, second) => {
       const firstValue = getProdutoFieldValue(first, sortField)
       const secondValue = getProdutoFieldValue(second, sortField)
-      return compareFieldValues(sortField, firstValue, secondValue) * sortDirection
+      return compareFieldValues(fieldConfigByKey[sortField], firstValue, secondValue) * sortDirection
     })
   }, [
+    fieldConfigByKey,
     marketFilters,
     products,
     searchField,
+    selectedSearchFieldType,
     searchValue,
     showForwardedProducts,
     isForwardedProduct,
@@ -553,6 +729,18 @@ export function ProductList({ atividade }: ProductListProps) {
       const pageKeysSet = new Set(pagedProductKeys)
       return current.filter((currentKey) => !pageKeysSet.has(currentKey))
     })
+  }
+
+  const clearSelectedProducts = () => {
+    setSelectedProductKeys([])
+  }
+  const clearPageSelectedProducts = () => {
+    if (pagedProductKeys.length === 0) {
+      return
+    }
+
+    const pageKeysSet = new Set(pagedProductKeys)
+    setSelectedProductKeys((current) => current.filter((currentKey) => !pageKeysSet.has(currentKey)))
   }
 
   const applyBulkActivityToSelected = () => {
@@ -668,7 +856,19 @@ export function ProductList({ atividade }: ProductListProps) {
               onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
             />
             <label htmlFor="product-select-page">Selecionar página</label>
-            <span className="product-bulk-count">{selectedProductKeys.length} selecionado(s)</span>
+            <div className="product-bulk-count">
+              {selectedProductKeys.length > 0 && (
+                <Button
+                  type="button"
+                  icon={<FontAwesomeIcon icon={faBroom} />}
+                  text
+                  rounded
+                  aria-label="Limpar selecionados"
+                  onClick={clearSelectedProducts}
+                />
+              )}
+              <span >{selectedProductKeys.length} selecionado(s)</span>
+            </div>
           </div>
           <div className="product-bulk-actions-row">
             <Dropdown
@@ -721,12 +921,74 @@ export function ProductList({ atividade }: ProductListProps) {
               className="product-search-column"
               placeholder="Selecione a coluna"
             />
-            <InputText
-              value={searchValue}
-              onChange={(event) => setSearchValue(event.target.value)}
-              placeholder="Digite para buscar..."
-              className="product-search-input"
-            />
+            {selectedSearchFieldType === 'input' && (
+              <InputText
+                value={typeof searchValue === 'string' ? searchValue : ''}
+                onChange={(event) => setSearchValue(event.target.value)}
+                placeholder="Digite para buscar..."
+                className="product-search-input"
+              />
+            )}
+            {selectedSearchFieldType === 'inputNumber' && (
+              <InputNumber
+                value={typeof searchValue === 'number' ? searchValue : null}
+                onValueChange={(event: InputNumberValueChangeEvent) => setSearchValue(event.value ?? null)}
+                placeholder="Digite um número..."
+                className="product-search-input"
+                useGrouping={false}
+              />
+            )}
+            {selectedSearchFieldType === 'date' && (
+              <Calendar
+                value={searchValue instanceof Date ? searchValue : null}
+                onChange={(event) => setSearchValue(event.value instanceof Date ? event.value : null)}
+                dateFormat="yy-mm-dd"
+                placeholder="Selecione a data"
+                className="product-search-input"
+                showIcon
+              />
+            )}
+            {selectedSearchFieldType === 'select' && (
+              <Dropdown
+                value={typeof searchValue === 'string' ? searchValue : null}
+                onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as string | null) ?? null)}
+                options={searchSelectOptions}
+                optionLabel="label"
+                optionValue="value"
+                placeholder={`Selecione ${searchableFieldMap[searchField]?.label ?? 'um valor'}`}
+                className="product-search-input"
+                showClear
+                filter
+              />
+            )}
+            {selectedSearchFieldType === 'multipleSelect' && (
+              <MultiSelect
+                value={Array.isArray(searchValue) ? searchValue : []}
+                onChange={(event: MultiSelectChangeEvent) => setSearchValue((event.value as string[]) ?? [])}
+                options={searchSelectOptions}
+                optionLabel="label"
+                optionValue="value"
+                placeholder={`Selecione ${searchableFieldMap[searchField]?.label ?? 'os valores'}`}
+                className="product-search-input"
+                filter
+                display="chip"
+              />
+            )}
+            {selectedSearchFieldType === 'boolean' && (
+              <Dropdown
+                value={typeof searchValue === 'boolean' ? searchValue : null}
+                onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as boolean | null) ?? null)}
+                options={[
+                  { label: 'Sim', value: true },
+                  { label: 'Não', value: false },
+                ]}
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Selecione"
+                className="product-search-input"
+                showClear
+              />
+            )}
           </div>
           <div className="product-sort-row">
             <span className="product-control-label">Ordenar por</span>
@@ -779,7 +1041,7 @@ export function ProductList({ atividade }: ProductListProps) {
                 optionLabel="label"
                 optionValue="value"
                 className="product-sort-column"
-                placeholder={FIELD_LABELS[field].label}
+                placeholder={MARKET_FIELD_LABELS[field]}
                 disabled={MARKET_FIELD_INDEX[field] > 0 && !marketFilters[MARKET_FIELD_KEYS[MARKET_FIELD_INDEX[field] - 1]]}
               />
             ))}
@@ -810,7 +1072,8 @@ export function ProductList({ atividade }: ProductListProps) {
             isForwarded={isForwardedProduct(produto)}
             selectedActivity={selectedActivitiesByProduct[productKey] ?? null}
             activityOptions={activityOptions}
-            visibleFields={visibleFields}
+            visibleFields={cardVisibleFields}
+            fieldConfigByKey={fieldConfigByKey}
             onToggleSelect={toggleProductSelection}
           />
         )
@@ -822,7 +1085,8 @@ export function ProductList({ atividade }: ProductListProps) {
     selectedProductKeysSet,
     isForwardedProduct,
     toggleProductSelection,
-    visibleFields,
+    cardVisibleFields,
+    fieldConfigByKey,
   ])
 
   const carouselItemTemplate = useCallback(

@@ -5,6 +5,7 @@ import {
   activitySnapshotRepository,
 } from './offlineDb'
 import type {
+  AtividadeProdutoColumn,
   ActivityProductListPreferences,
   ActivityProductListPreferencesSnapshot,
   ActivityProductSelectionsSnapshot,
@@ -89,6 +90,37 @@ const toAtividadeElegivelProduto = (value: unknown): AtividadeElegivelProduto | 
     idwfatividaderealizada,
     atividaderealizada: String(value.atividaderealizada ?? ''),
   }
+}
+
+const toAtividadeProdutoColumns = (value: unknown): Record<string, AtividadeProdutoColumn> => {
+  if (!isRecord(value)) {
+    return {}
+  }
+
+  return Object.entries(value).reduce<Record<string, AtividadeProdutoColumn>>((accumulator, [field, rawConfig]) => {
+    if (!isRecord(rawConfig)) {
+      return accumulator
+    }
+
+    const normalizedType = String(rawConfig.type ?? 'input')
+    const allowedTypes: AtividadeProdutoColumn['type'][] = ['select', 'multipleSelect', 'input', 'inputNumber', 'date', 'boolean']
+    const type = allowedTypes.includes(normalizedType as AtividadeProdutoColumn['type'])
+      ? normalizedType as AtividadeProdutoColumn['type']
+      : 'input'
+
+    accumulator[field] = {
+      label: String(rawConfig.label ?? field),
+      type,
+      searchable: Boolean(rawConfig.searchable),
+      sortable: Boolean(rawConfig.sortable),
+      icon: typeof rawConfig.icon === 'string' ? rawConfig.icon : undefined,
+      options: Array.isArray(rawConfig.options)
+        ? rawConfig.options.map((option) => String(option))
+        : undefined,
+    }
+
+    return accumulator
+  }, {})
 }
 
 const toProduto = (value: unknown): ProdutoAtividade | null => {
@@ -176,6 +208,7 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
     produtos: produtosRaw
       .map(toProduto)
       .filter((produto): produto is ProdutoAtividade => produto !== null),
+    columns: toAtividadeProdutoColumns(value.columns),
   }
 }
 

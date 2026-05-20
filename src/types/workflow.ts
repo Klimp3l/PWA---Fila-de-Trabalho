@@ -3,6 +3,16 @@ export interface AtividadeElegivelProduto {
   atividaderealizada: string
 }
 
+export interface AtividadeProdutoColumn {
+  label: string
+  type: 'select' | 'multipleSelect' | 'input' | 'inputNumber' | 'date' | 'boolean'
+  searchable: boolean
+  sortable: boolean
+  icon?: string
+  options?: string[]
+  defaultVisible?: boolean
+}
+
 export interface ProdutoAtividade {
   idwffilatrabalho: number
   idwfocorrencia: number
@@ -56,6 +66,7 @@ export interface AtividadeComProdutos {
   wfatividade: string
   atividadeselegiveis: AtividadeElegivelProduto[]
   produtos: ProdutoAtividade[]
+  columns: Record<string, AtividadeProdutoColumn>
 }
 
 export interface ActivitySnapshot {

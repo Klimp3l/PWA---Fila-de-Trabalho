@@ -1,7 +1,8 @@
-import type { AtividadeElegivelProduto, ProdutoAtividade } from '../../types/workflow'
-import { DEFAULT_PRODUCT_IMAGE, FIELD_LABELS, type FieldMeta } from './config'
+import type { AtividadeElegivelProduto, AtividadeProdutoColumn, ProdutoAtividade } from '../../types/workflow'
+import { DEFAULT_PRODUCT_IMAGE } from './config'
 
 type FieldFormatter = (value: unknown) => string
+type LocalFieldType = 'string' | 'number' | 'currency'
 
 export const getProdutoFieldValue = (produto: ProdutoAtividade, field: string): unknown =>
   produto[field as keyof ProdutoAtividade]
@@ -11,7 +12,7 @@ const formatCurrency = (value: number | null) =>
     ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
     : '-'
 
-const FIELD_FORMATTERS: Record<FieldMeta['type'], FieldFormatter> = {
+const FIELD_FORMATTERS: Record<LocalFieldType, FieldFormatter> = {
   string: (value) => String(value ?? ''),
   number: (value) => {
     const numeric = Number(value)
@@ -20,8 +21,19 @@ const FIELD_FORMATTERS: Record<FieldMeta['type'], FieldFormatter> = {
   currency: (value) => formatCurrency(typeof value === 'number' ? value : Number(value)),
 }
 
-export const formatFieldValue = (field: string, value: unknown) => {
-  const fieldType = FIELD_LABELS[field]?.type
+const resolveFieldType = (fieldConfig?: AtividadeProdutoColumn): LocalFieldType => {
+  const configuredType = String(fieldConfig?.type ?? '').toLowerCase()
+  if (configuredType === 'inputnumber') {
+    return 'number'
+  }
+  if (configuredType === 'currency' || configuredType === 'money') {
+    return 'currency'
+  }
+  return 'string'
+}
+
+export const formatFieldValue = (fieldConfig: AtividadeProdutoColumn | undefined, value: unknown) => {
+  const fieldType = resolveFieldType(fieldConfig)
 
   if (!fieldType) {
     return String(value ?? '')
@@ -63,7 +75,11 @@ export const toDropdownActivityId = (value: unknown): number | null => {
   return null
 }
 
-export const compareFieldValues = (field: string, first: unknown, second: unknown) => {
+export const compareFieldValues = (
+  fieldConfig: AtividadeProdutoColumn | undefined,
+  first: unknown,
+  second: unknown,
+) => {
   if (first == null && second == null) {
     return 0
   }
@@ -76,7 +92,7 @@ export const compareFieldValues = (field: string, first: unknown, second: unknow
     return -1
   }
 
-  const fieldType = FIELD_LABELS[field]?.type
+  const fieldType = resolveFieldType(fieldConfig)
 
   if (fieldType === 'number' || fieldType === 'currency') {
     return Number(first) - Number(second)
