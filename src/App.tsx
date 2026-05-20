@@ -2,35 +2,50 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
-import { SESSION_INVALID_EVENT, login, logout } from './services/api'
+import { SESSION_INVALID_EVENT, getInfoUsuario, login, logout } from './services/api'
 import { AppHeader } from './components/AppHeader'
 import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { ActivityProductsPage } from './pages/ActivityProductsPage'
 import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
-import { clearOfflineActivityData } from './services/offlineDb'
+import { setOfflineDataUserScope } from './services/offlineDb'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
 const AUTH_STORAGE_KEY = 'odw:is-authenticated'
+const AUTH_USER_LABEL_STORAGE_KEY = 'odw:user-label'
+
+const getUserLabelFromStorage = () => {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return window.localStorage.getItem(AUTH_USER_LABEL_STORAGE_KEY) ?? ''
+}
 
 function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
     localStorage.getItem(AUTH_STORAGE_KEY) === 'true' ? 'authenticated' : 'unauthenticated',
   )
+  const [userLabel, setUserLabel] = useState(getUserLabelFromStorage)
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false)
   const [authError, setAuthError] = useState('')
   const handleLogoutSuccess = useCallback(() => {
+    setOfflineDataUserScope(null)
     localStorage.removeItem(AUTH_STORAGE_KEY)
+    localStorage.removeItem(AUTH_USER_LABEL_STORAGE_KEY)
     setAuthStatus('unauthenticated')
+    setUserLabel('')
     setAuthError('')
   }, [])
 
   useEffect(() => {
     const handleSessionInvalid = () => {
       clearAtividadesCache()
-      void clearOfflineActivityData()
+      setOfflineDataUserScope(null)
       localStorage.removeItem(AUTH_STORAGE_KEY)
+      localStorage.removeItem(AUTH_USER_LABEL_STORAGE_KEY)
       setAuthStatus('unauthenticated')
+      setUserLabel('')
       setAuthError('Sua sessão expirou. Faça login novamente.')
     }
 
@@ -48,10 +63,20 @@ function App() {
         usuario: usuario.trim(),
         senha,
       })
+      const userInfo = await getInfoUsuario()
+      const userIdScope = userInfo?.idusuario !== null && userInfo?.idusuario !== undefined
+        ? `id:${userInfo.idusuario}`
+        : usuario.trim().toLocaleLowerCase('pt-BR')
+      const nextUserLabel = userInfo?.nome?.trim()
+        ? `${userInfo.nome.trim()} (${userInfo.usuario || usuario.trim()})`
+        : (userInfo?.usuario?.trim() || usuario.trim())
+
       clearAtividadesCache()
-      await clearOfflineActivityData()
+      setOfflineDataUserScope(userIdScope)
       localStorage.setItem(AUTH_STORAGE_KEY, 'true')
+      localStorage.setItem(AUTH_USER_LABEL_STORAGE_KEY, nextUserLabel)
       setAuthStatus('authenticated')
+      setUserLabel(nextUserLabel)
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -85,6 +110,7 @@ function App() {
             <ProtectedRoute
               isAuthenticated={authStatus === 'authenticated'}
               onLogoutSuccess={handleLogoutSuccess}
+              userLabel={userLabel}
             >
               <HomePage />
             </ProtectedRoute>
@@ -97,6 +123,7 @@ function App() {
               isAuthenticated={authStatus === 'authenticated'}
               onLogoutSuccess={handleLogoutSuccess}
               showHeader={false}
+              userLabel={userLabel}
             >
               <ActivityProductsPage />
             </ProtectedRoute>
@@ -121,6 +148,7 @@ interface ProtectedRouteProps {
   onLogoutSuccess: () => void
   children: ReactNode
   showHeader?: boolean
+  userLabel: string
 }
 
 function ProtectedRoute({
@@ -128,6 +156,7 @@ function ProtectedRoute({
   onLogoutSuccess,
   children,
   showHeader = true,
+  userLabel,
 }: ProtectedRouteProps) {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [isSubmittingLogout, setIsSubmittingLogout] = useState(false)
@@ -137,7 +166,6 @@ function ProtectedRoute({
       setIsSubmittingLogout(true)
       await logout()
       clearAtividadesCache()
-      await clearOfflineActivityData()
       onLogoutSuccess()
     } catch (error) {
       const errorMessage =
@@ -178,6 +206,7 @@ function ProtectedRoute({
           canLogout={isAuthenticated}
           onLogout={handleLogout}
           isSubmittingLogout={isSubmittingLogout}
+          userLabel={userLabel}
         />
       )}
       {children}

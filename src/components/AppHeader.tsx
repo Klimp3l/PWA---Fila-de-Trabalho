@@ -7,6 +7,7 @@ interface AppHeaderProps {
   canLogout: boolean
   onLogout: () => Promise<void>
   isSubmittingLogout: boolean
+  userLabel?: string
 }
 
 export function AppHeader({
@@ -14,17 +15,19 @@ export function AppHeader({
   canLogout,
   onLogout,
   isSubmittingLogout,
+  userLabel,
 }: AppHeaderProps) {
   return (
     <header className="app-topbar">
       <div className="app-title">
         <h1>Fila de Trabalho</h1>
+        {userLabel ? <p>{userLabel}</p> : null}
       </div>
       <strong className={isOnline ? 'status-pill online' : 'status-pill offline'}>
         <FontAwesomeIcon icon={isOnline ? faCloud : faTriangleExclamation} />
         {isOnline ? 'Online' : 'Offline'}
       </strong>
-      {canLogout && (
+      {canLogout && isOnline && (
         <Button
           className="app-btn danger"
           onClick={() => void onLogout()}

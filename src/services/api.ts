@@ -43,8 +43,55 @@ export interface LoginResponse {
   msg?: string
 }
 
+export interface UsuarioInfo {
+  idusuario: number | null
+  usuario: string
+  nome: string
+  email: string
+  telefonecelular: string
+}
+
 const parseJson = async (response: Response): Promise<unknown> => {
   return response.json() as Promise<unknown>
+}
+
+const toNumberOrNull = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+const toUsuarioInfo = (value: unknown): UsuarioInfo | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    idusuario: toNumberOrNull(value.idusuario),
+    usuario: String(value.usuario ?? ''),
+    nome: String(value.nome ?? ''),
+    email: String(value.email ?? ''),
+    telefonecelular: String(value.telefonecelular ?? ''),
+  }
+}
+
+const extractFirstUserInfoRecord = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value[0]
+  }
+
+  if (isRecord(value) && Array.isArray(value.rows)) {
+    return value.rows[0]
+  }
+
+  return value
 }
 
 const isSessionInvalidResponse = (response: Response) => {
@@ -143,4 +190,18 @@ export const getMercadologicos = async (
 
   const parsed = await parseJson(response)
   return parsed
+}
+
+export const getInfoUsuario = async (
+  baseUrl = API_BASE_URL,
+): Promise<UsuarioInfo | null> => {
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getInfoUsuario', {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+  })
+
+  const parsed = await parseJson(response)
+  const firstRecord = extractFirstUserInfoRecord(parsed)
+  return toUsuarioInfo(firstRecord)
 }
