@@ -6,12 +6,16 @@ interface ActivityCardListProps {
   atividades: AtividadeComProdutos[]
   selectedActivityId: number | null
   onSelect: (idAtividade: number) => void
+  onSubmitActivity: (atividade: AtividadeComProdutos) => void
+  submittingActivityId: number | null
 }
 
 export function ActivityCardList({
   atividades,
   selectedActivityId,
   onSelect,
+  onSubmitActivity,
+  submittingActivityId,
 }: ActivityCardListProps) {
   if (atividades.length === 0) {
     return (
@@ -32,6 +36,9 @@ export function ActivityCardList({
           atividade={atividade}
           isSelected={selectedActivityId === atividade.idwfatividade}
           onSelect={onSelect}
+          canSubmit={atividade.produtos.some((produto) => produto.idwfatividaderealizada !== null)}
+          isSubmitting={submittingActivityId === atividade.idwfatividade}
+          onSubmit={onSubmitActivity}
         />
       ))}
     </section>

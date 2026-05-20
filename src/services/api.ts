@@ -51,6 +51,18 @@ export interface UsuarioInfo {
   telefonecelular: string
 }
 
+export interface EncaminhamentoUpdateItem {
+  idwfocorrencia: number
+  idwfatividadeencaminhamento: number
+  observacao: string
+  idwffilatrabalho: number
+}
+
+export interface EncaminhamentoUpdatePayload {
+  idwfprocesso: number
+  encaminhamentos: EncaminhamentoUpdateItem[]
+}
+
 const parseJson = async (response: Response): Promise<unknown> => {
   return response.json() as Promise<unknown>
 }
@@ -204,4 +216,33 @@ export const getInfoUsuario = async (
   const parsed = await parseJson(response)
   const firstRecord = extractFirstUserInfoRecord(parsed)
   return toUsuarioInfo(firstRecord)
+}
+
+export const updateEncaminhamentos = async (
+  payload: EncaminhamentoUpdatePayload,
+  baseUrl = API_BASE_URL,
+): Promise<unknown> => {
+  const body = new URLSearchParams({
+    wffilatrabalho: JSON.stringify(payload),
+  })
+
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=update', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    },
+    body,
+  })
+
+  const responseText = await response.text()
+  if (!responseText.trim()) {
+    return null
+  }
+
+  try {
+    return JSON.parse(responseText) as unknown
+  } catch {
+    return responseText
+  }
 }

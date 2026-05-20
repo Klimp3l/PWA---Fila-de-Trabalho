@@ -252,6 +252,12 @@
   align-items: center;
 }
 
+.home-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .activity-card-list {
   display: grid;
   gap: 10px;
@@ -263,6 +269,11 @@
   background: #ffffff;
   overflow: hidden;
   box-shadow: var(--wfg-shadow);
+}
+
+.activity-card-shell {
+  display: flex;
+  flex-direction: column;
 }
 
 .activity-card-content {
@@ -290,6 +301,20 @@
   grid-template-columns: 1fr;
   gap: 12px;
   cursor: pointer;
+}
+
+.activity-card-actions {
+  display: flex;
+  padding: 12px 12px 0;
+}
+
+.activity-card-actions .app-btn, .product-progress-overview .app-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.activity-card-actions .p-button-label, .product-progress-overview .p-button-label {
+  flex: unset!important;
 }
 
 .activity-card-btn:focus-visible {
@@ -531,6 +556,13 @@
   background: #f9fbff;
 }
 
+.product-panel-submit-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
 .product-panel .p-dataview-header {
   border: 1px solid var(--wfg-line);
   border-radius: 10px;
@@ -749,6 +781,16 @@
 
   .app-topbar .app-btn.danger {
     width: 100%;
+  }
+
+  .home-page-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .home-page-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .product-list-header {

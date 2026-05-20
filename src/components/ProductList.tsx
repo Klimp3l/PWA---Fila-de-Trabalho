@@ -11,6 +11,7 @@ import { InputText } from 'primereact/inputtext'
 import { InputSwitch, type InputSwitchChangeEvent } from 'primereact/inputswitch'
 import { Message } from 'primereact/message'
 import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect'
+import { Toast } from 'primereact/toast'
 import { classNames } from 'primereact/utils'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -53,6 +54,7 @@ import {
 } from './product-list/utils'
 import type { ActivityProductListPreferences } from '../types/workflow'
 import { syncActivitySelectionsInCache } from '../hooks/useAtividadesWithOnlineRefresh'
+import { updateEncaminhamentos } from '../services/api'
 
 interface ProductCardItemProps {
   produto: ProdutoAtividade
@@ -231,8 +233,10 @@ export function ProductList({ atividade }: ProductListProps) {
   const [showForwardedProducts, setShowForwardedProducts] = useState(true)
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
+  const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
   const hasLoadedPreferencesRef = useRef<number | null>(null)
   const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toastRef = useRef<Toast | null>(null)
 
   const products = useMemo(() => atividade?.produtos ?? [], [atividade])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
@@ -765,6 +769,92 @@ export function ProductList({ atividade }: ProductListProps) {
     // }, 1)
   }
 
+  const hasEncaminhamentosToSubmit = useMemo(
+    () => products.some((produto) => {
+      const productKey = getProdutoAtividadeKey(produto)
+      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      return selectedValue !== null
+    }),
+    [products, selectedActivitiesByProduct],
+  )
+
+  const handleSubmitEncaminhamentos = useCallback(async () => {
+    if (!atividade || isSubmittingEncaminhamentos) {
+      return
+    }
+
+    const encaminhamentos = products
+      .map((produto) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+
+        if (selectedValue === null) {
+          return null
+        }
+
+        return {
+          idwfocorrencia: produto.idwfocorrencia,
+          idwfatividadeencaminhamento: selectedValue,
+          observacao: produto.observacao ?? '',
+          idwffilatrabalho: produto.idwffilatrabalho,
+        }
+      })
+      .filter((value): value is {
+        idwfocorrencia: number
+        idwfatividadeencaminhamento: number
+        observacao: string
+        idwffilatrabalho: number
+      } => value !== null)
+
+    if (encaminhamentos.length === 0) {
+      toastRef.current?.show({
+        severity: 'warn',
+        summary: 'Nada para enviar',
+        detail: 'Selecione pelo menos um encaminhamento antes de enviar.',
+      })
+      return
+    }
+
+    const idwfprocesso = atividade.idwfprocesso
+
+    try {
+      setIsSubmittingEncaminhamentos(true)
+      const response = await updateEncaminhamentos({
+        idwfprocesso,
+        encaminhamentos,
+      })
+
+      const responseText = typeof response === 'string' ? response : JSON.stringify(response ?? '')
+      const hasError = responseText.toLowerCase().includes('erro')
+
+      if (hasError) {
+        toastRef.current?.show({
+          severity: 'error',
+          summary: 'Falha ao enviar',
+          detail: responseText || 'O servidor retornou erro ao enviar os encaminhamentos.',
+          life: 7000,
+        })
+        return
+      }
+
+      toastRef.current?.show({
+        severity: 'success',
+        summary: 'Enviado com sucesso',
+        detail: 'Os encaminhamentos da atividade foram enviados.',
+      })
+    } catch (error) {
+      console.error('[ProductList] Falha ao enviar encaminhamentos.', error)
+      toastRef.current?.show({
+        severity: 'error',
+        summary: 'Falha ao enviar',
+        detail: error instanceof Error ? error.message : 'Não foi possível enviar os encaminhamentos.',
+        life: 7000,
+      })
+    } finally {
+      setIsSubmittingEncaminhamentos(false)
+    }
+  }, [atividade, isSubmittingEncaminhamentos, products, selectedActivitiesByProduct])
+
   const header = () => (
     <div className="product-list-header">
       <div className="product-list-header-top">
@@ -1096,6 +1186,7 @@ export function ProductList({ atividade }: ProductListProps) {
 
   return (
     <section className="panel product-panel">
+      <Toast ref={toastRef} position="top-right" />
       {!atividade
         ? (
           <>
@@ -1110,12 +1201,26 @@ export function ProductList({ atividade }: ProductListProps) {
           <>
             <span className="product-panel-subtitle"><FontAwesomeIcon icon={faBuilding} />{atividade.empresa} | {atividade.wfprocesso}</span>
             <h2 className="product-panel-title"><FontAwesomeIcon icon={faPersonWalking} />{atividade.wfatividade}</h2>
-            <WorkflowProgressBar
-              completed={forwardedProductsCount}
-              total={products.length}
-              itemLabel="produtos encaminhados"
-              className="product-progress-overview"
-            />
+            <div className="product-panel-submit-row">
+              <WorkflowProgressBar
+                completed={forwardedProductsCount}
+                total={products.length}
+                itemLabel="produtos encaminhados"
+                className="product-progress-overview"
+              >
+                <Button
+                  type="button"
+                  label="Enviar"
+                  icon="pi pi-send"
+                  className="app-btn primary"
+                  onClick={() => {
+                    void handleSubmitEncaminhamentos()
+                  }}
+                  loading={isSubmittingEncaminhamentos}
+                  disabled={!hasEncaminhamentosToSubmit}
+                />
+              </WorkflowProgressBar>
+            </div>
             <div
               className="p-dataview p-component product-dataview"
             >

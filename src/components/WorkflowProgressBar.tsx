@@ -5,6 +5,7 @@ interface WorkflowProgressBarProps {
   total: number
   itemLabel: string
   className?: string
+  children?: React.ReactNode
 }
 
 export function WorkflowProgressBar({
@@ -12,6 +13,7 @@ export function WorkflowProgressBar({
   total,
   itemLabel,
   className,
+  children,
 }: WorkflowProgressBarProps) {
   const normalizedTotal = Math.max(total, 0)
   const normalizedCompleted = Math.min(Math.max(completed, 0), normalizedTotal)
@@ -28,6 +30,7 @@ export function WorkflowProgressBar({
         <strong>{percentage}%</strong>
       </div>
       <ProgressBar value={percentage} className="workflow-progress-bar" />
+      {children}
     </div>
   )
 }
