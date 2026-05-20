@@ -151,6 +151,10 @@ const ProductCardItem = memo(function ProductCardItem({
                 <h3>{produto.produto}</h3>
               </div>
               <div className="product-card-body">
+                <p key={`${produto.idproduto}-idproduto`}>
+                  ID: {produto.idproduto}
+                  <i className="fa-solid fa-barcode" aria-hidden="true" />{produto.codigobarras}
+                </p>
                 {visibleFields.map((field) => (
                   <p key={`${produto.idproduto}-${field}`}>
                     {fieldConfigByKey[field]?.icon && <i className={fieldConfigByKey[field].icon} aria-hidden="true" />}
@@ -212,6 +216,7 @@ const formatDateForComparison = (value: unknown) => {
 }
 
 export function ProductList({ atividade }: ProductListProps) {
+  const NONE_ACTIVITY_OPTION_VALUE = '__none__'
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
   const [visibleFields, setVisibleFields] = useState<string[]>([])
   const [showControls, setShowControls] = useState(false)
@@ -229,7 +234,7 @@ export function ProductList({ atividade }: ProductListProps) {
   })
   const [selectedActivitiesByProduct, setSelectedActivitiesByProduct] = useState<Record<string, number | null>>({})
   const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([])
-  const [bulkActivityId, setBulkActivityId] = useState<number | null>(null)
+  const [bulkActivityId, setBulkActivityId] = useState<number | typeof NONE_ACTIVITY_OPTION_VALUE | null>(null)
   const [showForwardedProducts, setShowForwardedProducts] = useState(true)
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
@@ -696,6 +701,27 @@ export function ProductList({ atividade }: ProductListProps) {
     [activityEligibleItems],
   )
 
+  const hasForwardedSelectedProducts = useMemo(
+    () => selectedProductKeys.some((productKey) => {
+      const produto = products.find((item) => getProdutoAtividadeKey(item) === productKey)
+      if (!produto) {
+        return false
+      }
+      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      return selectedValue !== null
+    }),
+    [products, selectedActivitiesByProduct, selectedProductKeys],
+  )
+
+  const bulkActivityOptions = useMemo(
+    () => (
+      hasForwardedSelectedProducts
+        ? [{ label: 'Nenhum encaminhamento', value: NONE_ACTIVITY_OPTION_VALUE }, ...activityOptions]
+        : activityOptions
+    ),
+    [activityOptions, hasForwardedSelectedProducts],
+  )
+
   const pagedProductKeys = useMemo(
     () => currentPageProducts.map((produto) => getProdutoAtividadeKey(produto)),
     [currentPageProducts],
@@ -738,14 +764,6 @@ export function ProductList({ atividade }: ProductListProps) {
   const clearSelectedProducts = () => {
     setSelectedProductKeys([])
   }
-  const clearPageSelectedProducts = () => {
-    if (pagedProductKeys.length === 0) {
-      return
-    }
-
-    const pageKeysSet = new Set(pagedProductKeys)
-    setSelectedProductKeys((current) => current.filter((currentKey) => !pageKeysSet.has(currentKey)))
-  }
 
   const applyBulkActivityToSelected = () => {
     if (bulkActivityId === null || selectedProductKeys.length === 0) {
@@ -756,7 +774,7 @@ export function ProductList({ atividade }: ProductListProps) {
     setSelectedActivitiesByProduct((current) => {
       const next = { ...current }
       selectedKeys.forEach((productKey) => {
-        next[productKey] = bulkActivityId
+        next[productKey] = bulkActivityId === NONE_ACTIVITY_OPTION_VALUE ? null : bulkActivityId
       })
       return next
     })
@@ -964,13 +982,20 @@ export function ProductList({ atividade }: ProductListProps) {
             <Dropdown
               inputId="product-bulk-activity"
               value={bulkActivityId}
-              onChange={(event: DropdownChangeEvent) => setBulkActivityId(toDropdownActivityId(event.value))}
-              options={activityOptions}
+              onChange={(event: DropdownChangeEvent) => {
+                const value = event.value
+                if (value === NONE_ACTIVITY_OPTION_VALUE) {
+                  setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
+                  return
+                }
+                setBulkActivityId(toDropdownActivityId(value))
+              }}
+              options={bulkActivityOptions}
               optionLabel="label"
               optionValue="value"
               placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
               className="product-bulk-dropdown"
-              disabled={activityOptions.length === 0}
+              disabled={bulkActivityOptions.length === 0}
               showClear
             />
             <Button

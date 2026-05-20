@@ -1,5 +1,5 @@
 export const DEFAULT_PRODUCT_IMAGE = `${import.meta.env.BASE_URL}default.png`
-export const ALWAYS_VISIBLE_FIELDS = ['produto']
+export const ALWAYS_VISIBLE_FIELDS = ['produto', 'idproduto', 'codigobarras']
 export const DEFAULT_ROWS_PER_PAGE = 4
 export const SWIPE_THRESHOLD = 60
 
