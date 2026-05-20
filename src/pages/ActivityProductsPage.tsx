@@ -77,7 +77,12 @@ export function ActivityProductsPage() {
           className="app-btn default"
           type="button"
           onClick={() => {
-            navigate('/home')
+            if (window.history.state?.idx > 0) {
+              navigate(-1)
+              return
+            }
+
+            navigate('/home', { replace: true })
           }}
           text
         >

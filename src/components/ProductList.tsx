@@ -1,6 +1,7 @@
-import { type MouseEvent, type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
+import { Carousel } from 'primereact/carousel'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { DataViewLayoutOptions } from 'primereact/dataview'
 import { Dropdown, type DropdownChangeEvent } from 'primereact/dropdown'
@@ -8,7 +9,6 @@ import { InputText } from 'primereact/inputtext'
 import { InputSwitch, type InputSwitchChangeEvent } from 'primereact/inputswitch'
 import { Message } from 'primereact/message'
 import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect'
-import { Paginator } from 'primereact/paginator'
 import { classNames } from 'primereact/utils'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -41,7 +41,6 @@ import {
   FIELD_LABELS,
   MARKET_FIELD_INDEX,
   MARKET_FIELD_KEYS,
-  SWIPE_THRESHOLD,
   type MarketFieldKey,
 } from './product-list/config'
 import {
@@ -199,10 +198,8 @@ export function ProductList({ atividade }: ProductListProps) {
   const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([])
   const [bulkActivityId, setBulkActivityId] = useState<number | null>(null)
   const [showForwardedProducts, setShowForwardedProducts] = useState(false)
-  const [first, setFirst] = useState(0)
+  const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
-  const touchStartXRef = useRef<number | null>(null)
-  const touchStartYRef = useRef<number | null>(null)
   const hasLoadedPreferencesRef = useRef<number | null>(null)
 
   const products = useMemo(() => atividade?.produtos ?? [], [atividade])
@@ -468,32 +465,32 @@ export function ProductList({ atividade }: ProductListProps) {
     sortField,
   ])
 
-  const pagedProducts = useMemo(
-    () => filteredAndSortedProducts.slice(first, first + rowsPerPage),
-    [filteredAndSortedProducts, first, rowsPerPage],
+  const productPages = useMemo(() => {
+    if (filteredAndSortedProducts.length === 0) {
+      return []
+    }
+
+    const pages: ProdutoAtividade[][] = []
+    for (let index = 0; index < filteredAndSortedProducts.length; index += rowsPerPage) {
+      pages.push(filteredAndSortedProducts.slice(index, index + rowsPerPage))
+    }
+
+    return pages
+  }, [filteredAndSortedProducts, rowsPerPage])
+
+  const currentPageProducts = useMemo(
+    () => productPages[activePage] ?? [],
+    [activePage, productPages],
   )
 
   useEffect(() => {
-    const lastPageStart = Math.max(
-      0,
-      Math.floor((filteredAndSortedProducts.length - 1) / rowsPerPage) * rowsPerPage,
-    )
-    setFirst((current) => Math.min(current, lastPageStart))
-  }, [filteredAndSortedProducts.length, rowsPerPage])
-
-  const goToPreviousPage = () => {
-    setFirst((current) => Math.max(0, current - rowsPerPage))
-  }
-
-  const goToNextPage = () => {
-    setFirst((current) => {
-      if (current + rowsPerPage >= filteredAndSortedProducts.length) {
-        return current
+    setActivePage((current) => {
+      if (productPages.length === 0) {
+        return 0
       }
-
-      return current + rowsPerPage
+      return Math.min(current, productPages.length - 1)
     })
-  }
+  }, [productPages.length])
 
   const activityOptions = activityEligibleItems.map((atividadeElegivel) => ({
     label: getAtividadeLabel(atividadeElegivel),
@@ -501,8 +498,8 @@ export function ProductList({ atividade }: ProductListProps) {
   }))
 
   const pagedProductKeys = useMemo(
-    () => pagedProducts.map((produto) => getProdutoAtividadeKey(produto)),
-    [pagedProducts],
+    () => currentPageProducts.map((produto) => getProdutoAtividadeKey(produto)),
+    [currentPageProducts],
   )
 
   const selectedProductKeysSet = useMemo(
@@ -572,36 +569,6 @@ export function ProductList({ atividade }: ProductListProps) {
     }, 1)
   }
 
-  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    const touch = event.changedTouches[0]
-    touchStartXRef.current = touch.clientX
-    touchStartYRef.current = touch.clientY
-  }
-
-  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
-    if (touchStartXRef.current == null || touchStartYRef.current == null) {
-      return
-    }
-
-    const touch = event.changedTouches[0]
-    const deltaX = touch.clientX - touchStartXRef.current
-    const deltaY = touch.clientY - touchStartYRef.current
-
-    touchStartXRef.current = null
-    touchStartYRef.current = null
-
-    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) {
-      return
-    }
-
-    if (deltaX > 0) {
-      goToPreviousPage()
-      return
-    }
-
-    goToNextPage()
-  }
-
   const header = () => (
     <div className="product-list-header">
       <div className="product-list-header-top">
@@ -667,18 +634,6 @@ export function ProductList({ atividade }: ProductListProps) {
             }
           />
         </div>
-        <Paginator
-          first={first}
-          rows={rowsPerPage}
-          totalRecords={filteredAndSortedProducts.length}
-          onPageChange={(event) => {
-            setFirst(event.first)
-            setRowsPerPage(event.rows)
-          }}
-          rowsPerPageOptions={[4, 6, 8, 12]}
-          currentPageReportTemplate="({totalRecords}) Página {currentPage} de {totalPages}"
-          template="PrevPageLink CurrentPageReport NextPageLink RowsPerPageDropdown"
-        />
         <DataViewLayoutOptions
           layout={layout}
           onChange={(event) => setLayout(event.value as 'list' | 'grid')}
@@ -879,15 +834,47 @@ export function ProductList({ atividade }: ProductListProps) {
             />
             <div
               className="p-dataview p-component product-dataview"
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
             >
               <div className="p-dataview-header">
                 {header()}
               </div>
               <div className="p-dataview-content">
-                {pagedProducts.length > 0
-                  ? renderProductList(pagedProducts, layout)
+                {productPages.length > 0
+                  ? (
+                    <>
+                      <div className="product-carousel-page-controls">
+                        <span>
+                          ({filteredAndSortedProducts.length}) Página {productPages.length === 0 ? 0 : activePage + 1} de {Math.max(productPages.length, 1)}
+                        </span>
+                        <Dropdown
+                          value={rowsPerPage}
+                          onChange={(event: DropdownChangeEvent) => {
+                            const nextRows = Number(event.value)
+                            const currentFirstItem = activePage * rowsPerPage
+                            const nextPage = Math.floor(currentFirstItem / nextRows)
+                            setRowsPerPage(nextRows)
+                            setActivePage(nextPage)
+                          }}
+                          options={[4, 6, 8, 12].map((value) => ({ label: `${value}`, value }))}
+                          optionLabel="label"
+                          optionValue="value"
+                          className="product-rows-dropdown"
+                        />
+                      </div>
+                      <Carousel
+                        value={productPages}
+                        page={activePage}
+                        numVisible={1}
+                        numScroll={1}
+                        circular={false}
+                        showIndicators={productPages.length > 1}
+                        showNavigators={productPages.length > 1}
+                        onPageChange={(event) => setActivePage(event.page)}
+                        itemTemplate={(items: ProdutoAtividade[]) => renderProductList(items, layout)}
+                        className="product-pages-carousel"
+                      />
+                    </>
+                  )
                   : (
                     <div className="p-dataview-emptymessage">
                       Nenhum produto encontrado com os filtros atuais.
