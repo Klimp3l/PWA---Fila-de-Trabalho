@@ -111,48 +111,60 @@ const ProductCardItem = memo(function ProductCardItem({
             'product-card-content-grid': layout === 'grid',
           })}
         >
-
-          {selectedActivity && (
+          {layout === 'list' && selectedActivity && (
             <p>
               <FontAwesomeIcon icon={faPersonWalking} />
               {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
             </p>
           )}
-          <div className="product-image-wrap">
-            <img
-              className="product-image"
-              src={resolveProductImage(produto)}
-              alt={produto.produto}
-              loading="lazy"
-              onError={(event) => {
-                if (event.currentTarget.src.endsWith('/default.png')) {
-                  return
-                }
-                event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
-              }}
-            />
-          </div>
-          <div className="product-details">
-            <div className="product-card-head">
-              <h3>{produto.produto}</h3>
+          <div
+            className={classNames('product-card-main', {
+              'product-card-main-list': layout === 'list',
+              'product-card-main-grid': layout === 'grid',
+            })}
+          >
+            {layout === 'grid' && selectedActivity && (
+              <p>
+                <FontAwesomeIcon icon={faPersonWalking} />
+                {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
+              </p>
+            )}
+            <div className="product-image-wrap">
+              <img
+                className="product-image"
+                src={resolveProductImage(produto)}
+                alt={produto.produto}
+                loading="lazy"
+                onError={(event) => {
+                  if (event.currentTarget.src.endsWith('/default.png')) {
+                    return
+                  }
+                  event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
+                }}
+              />
             </div>
-            <div className="product-card-body">
-              <p>
-                <FontAwesomeIcon icon={faGenderless} />
-                Código: {produto.idproduto || '-'}
-              </p>
-              <p>
-                <FontAwesomeIcon icon={faBarcode} />
-                Código de barras: {produto.codigobarras || '-'}
-              </p>
-
-              {visibleFields.map((field) => (
-                <p key={`${produto.idproduto}-${field}`}>
-                  {FIELD_LABELS[field]?.label ?? field}
-                  :{' '}
-                  {formatFieldValue(field, getProdutoFieldValue(produto, field))}
+            <div className="product-details">
+              <div className="product-card-head">
+                <h3>{produto.produto}</h3>
+              </div>
+              <div className="product-card-body">
+                <p>
+                  <FontAwesomeIcon icon={faGenderless} />
+                  Código: {produto.idproduto || '-'}
                 </p>
-              ))}
+                <p>
+                  <FontAwesomeIcon icon={faBarcode} />
+                  Código de barras: {produto.codigobarras || '-'}
+                </p>
+
+                {visibleFields.map((field) => (
+                  <p key={`${produto.idproduto}-${field}`}>
+                    {FIELD_LABELS[field]?.label ?? field}
+                    :{' '}
+                    {formatFieldValue(field, getProdutoFieldValue(produto, field))}
+                  </p>
+                ))}
+              </div>
             </div>
           </div>
         </div>
