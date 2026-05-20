@@ -685,23 +685,6 @@
   gap: 6px;
   align-items: center;
 }
-
-.product-activity-select {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.product-activity-select-label {
-  font-size: 0.78rem;
-  color: var(--wfg-text-soft);
-}
-
-.product-activity-dropdown {
-  width: min(100%, 420px);
-}
-
 .product-tag.p-tag {
   font-size: 0.78rem;
 }

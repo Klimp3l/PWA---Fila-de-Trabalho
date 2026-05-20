@@ -13,6 +13,7 @@ import { classNames } from 'primereact/utils'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faBarcode,
+  faGenderless,
   faBuilding,
   faLayerGroup,
   faList,
@@ -109,6 +110,13 @@ function ProductCardItem({
             'product-card-content-grid': layout === 'grid',
           })}
         >
+
+          {selectedActivity && (
+            <p>
+              <FontAwesomeIcon icon={faPersonWalking} />
+              {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
+            </p>
+          )}
           <div className="product-image-wrap">
             <img
               className="product-image"
@@ -129,36 +137,14 @@ function ProductCardItem({
             </div>
             <div className="product-card-body">
               <p>
+                <FontAwesomeIcon icon={faGenderless} />
+                Código: {produto.idproduto || '-'}
+              </p>
+              <p>
                 <FontAwesomeIcon icon={faBarcode} />
                 Código de barras: {produto.codigobarras || '-'}
               </p>
-              <div
-                className="product-activity-select"
-                onClick={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onTouchStart={(event) => event.stopPropagation()}
-              >
-                <span className="product-activity-select-label">Atividade realizada</span>
-                <Dropdown
-                  inputId={`product-activity-${productKey}`}
-                  value={selectedActivity}
-                  onChange={(event: DropdownChangeEvent) => {
-                    event.originalEvent?.stopPropagation()
-                    onActivityChange(productKey, toDropdownActivityId(event.value))
-                  }}
-                  options={activityOptions}
-                  optionLabel="label"
-                  optionValue="value"
-                  placeholder={
-                    activityOptions.length > 0
-                      ? 'Selecione a atividade'
-                      : 'Sem atividades disponíveis'
-                  }
-                  className="product-activity-dropdown"
-                  showClear={activityOptions.length > 0}
-                  disabled={activityOptions.length === 0}
-                />
-              </div>
+
               {visibleFields.map((field) => (
                 <p key={`${produto.idproduto}-${field}`}>
                   {FIELD_LABELS[field]?.label ?? field}
