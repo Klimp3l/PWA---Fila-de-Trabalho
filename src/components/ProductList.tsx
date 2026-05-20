@@ -1,4 +1,4 @@
-import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, type MouseEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
 import { Carousel } from 'primereact/carousel'
@@ -64,10 +64,9 @@ interface ProductCardItemProps {
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   onToggleSelect: (productKey: string, checked: boolean) => void
-  onActivityChange: (productKey: string, value: number | null) => void
 }
 
-function ProductCardItem({
+const ProductCardItem = memo(function ProductCardItem({
   produto,
   layout,
   index,
@@ -76,7 +75,6 @@ function ProductCardItem({
   activityOptions,
   visibleFields,
   onToggleSelect,
-  onActivityChange,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
 
@@ -158,7 +156,7 @@ function ProductCardItem({
       </Card>
     </div>
   )
-}
+})
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
@@ -187,6 +185,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const hasLoadedPreferencesRef = useRef<number | null>(null)
+  const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const products = useMemo(() => atividade?.produtos ?? [], [atividade])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
@@ -386,10 +385,24 @@ export function ProductList({ atividade }: ProductListProps) {
       return
     }
 
-    void saveActivityProductSelections(atividade.idwfatividade, selectedActivitiesByProduct).catch((error) => {
-      console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
-    })
-    syncActivitySelectionsInCache(atividade.idwfatividade, selectedActivitiesByProduct)
+    if (saveSelectionsTimeoutRef.current) {
+      clearTimeout(saveSelectionsTimeoutRef.current)
+    }
+
+    const activityId = atividade.idwfatividade
+    saveSelectionsTimeoutRef.current = setTimeout(() => {
+      void saveActivityProductSelections(activityId, selectedActivitiesByProduct).catch((error) => {
+        console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
+      })
+      syncActivitySelectionsInCache(activityId, selectedActivitiesByProduct)
+    }, 200)
+
+    return () => {
+      if (saveSelectionsTimeoutRef.current) {
+        clearTimeout(saveSelectionsTimeoutRef.current)
+        saveSelectionsTimeoutRef.current = null
+      }
+    }
   }, [atividade, selectedActivitiesByProduct])
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
@@ -451,18 +464,20 @@ export function ProductList({ atividade }: ProductListProps) {
     sortField,
   ])
 
+  const deferredFilteredAndSortedProducts = useDeferredValue(filteredAndSortedProducts)
+
   const productPages = useMemo(() => {
-    if (filteredAndSortedProducts.length === 0) {
+    if (deferredFilteredAndSortedProducts.length === 0) {
       return []
     }
 
     const pages: ProdutoAtividade[][] = []
-    for (let index = 0; index < filteredAndSortedProducts.length; index += rowsPerPage) {
-      pages.push(filteredAndSortedProducts.slice(index, index + rowsPerPage))
+    for (let index = 0; index < deferredFilteredAndSortedProducts.length; index += rowsPerPage) {
+      pages.push(deferredFilteredAndSortedProducts.slice(index, index + rowsPerPage))
     }
 
     return pages
-  }, [filteredAndSortedProducts, rowsPerPage])
+  }, [deferredFilteredAndSortedProducts, rowsPerPage])
 
   const currentPageProducts = useMemo(
     () => productPages[activePage] ?? [],
@@ -478,10 +493,13 @@ export function ProductList({ atividade }: ProductListProps) {
     })
   }, [productPages.length])
 
-  const activityOptions = activityEligibleItems.map((atividadeElegivel) => ({
-    label: getAtividadeLabel(atividadeElegivel),
-    value: atividadeElegivel.idwfatividaderealizada,
-  }))
+  const activityOptions = useMemo(
+    () => activityEligibleItems.map((atividadeElegivel) => ({
+      label: getAtividadeLabel(atividadeElegivel),
+      value: atividadeElegivel.idwfatividaderealizada,
+    })),
+    [activityEligibleItems],
+  )
 
   const pagedProductKeys = useMemo(
     () => currentPageProducts.map((produto) => getProdutoAtividadeKey(produto)),
@@ -507,17 +525,6 @@ export function ProductList({ atividade }: ProductListProps) {
 
       return current.filter((currentKey) => currentKey !== productKey)
     })
-  }, [])
-
-  const handleActivityChange = useCallback((productKey: string, value: number | null) => {
-    setSelectedActivitiesByProduct((current) => ({
-      ...current,
-      [productKey]: value,
-    }))
-
-    if (value !== null) {
-      setSelectedProductKeys((current) => current.filter((k) => k !== productKey))
-    }
   }, [])
 
   const togglePageSelection = (checked: boolean) => {
@@ -549,10 +556,10 @@ export function ProductList({ atividade }: ProductListProps) {
 
     setSelectedProductKeys((current) => current.filter((productKey) => !selectedKeys.includes(productKey)))
 
-    setShowBulkControls(false)
-    setTimeout(() => {
-      setShowBulkControls(true)
-    }, 1)
+    // setShowBulkControls(false)
+    // setTimeout(() => {
+    //   setShowBulkControls(true)
+    // }, 1)
   }
 
   const header = () => (
@@ -767,7 +774,7 @@ export function ProductList({ atividade }: ProductListProps) {
     </div>
   )
 
-  const renderProductList = (
+  const renderProductList = useCallback((
     items: ProdutoAtividade[],
     currentLayout: 'list' | 'grid' = 'list',
   ) => (
@@ -789,11 +796,21 @@ export function ProductList({ atividade }: ProductListProps) {
             activityOptions={activityOptions}
             visibleFields={visibleFields}
             onToggleSelect={toggleProductSelection}
-            onActivityChange={handleActivityChange}
           />
         )
       })}
     </div>
+  ), [
+    activityOptions,
+    selectedActivitiesByProduct,
+    selectedProductKeysSet,
+    toggleProductSelection,
+    visibleFields,
+  ])
+
+  const carouselItemTemplate = useCallback(
+    (items: ProdutoAtividade[]) => renderProductList(items, layout),
+    [layout, renderProductList],
   )
 
   return (
@@ -856,7 +873,7 @@ export function ProductList({ atividade }: ProductListProps) {
                         showIndicators={productPages.length > 1}
                         showNavigators={productPages.length > 1}
                         onPageChange={(event) => setActivePage(event.page)}
-                        itemTemplate={(items: ProdutoAtividade[]) => renderProductList(items, layout)}
+                        itemTemplate={carouselItemTemplate}
                         className="product-pages-carousel"
                       />
                     </>
