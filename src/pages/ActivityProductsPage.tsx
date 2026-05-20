@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ProgressSpinner } from 'primereact/progressspinner'
+import { Skeleton } from 'primereact/skeleton'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ProductList } from '../components/ProductList'
 import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
@@ -50,13 +50,21 @@ export function ActivityProductsPage() {
 
   if (isLoading) {
     return (
-      <section className="panel resource-loading">
-        <ProgressSpinner
-          style={{ width: '24px', height: '24px' }}
-          strokeWidth="6"
-          animationDuration=".9s"
-        />
-        <span>Carregando produtos da atividade...</span>
+      <section className="panel product-panel product-panel-loading" aria-busy="true" aria-live="polite">
+        <div className="product-panel-loading-back">
+          <Skeleton width="220px" height="18px" />
+        </div>
+        <Skeleton width="65%" height="14px" />
+        <Skeleton width="48%" height="26px" />
+        <Skeleton width="100%" height="58px" borderRadius="10px" />
+        <Skeleton width="100%" height="54px" borderRadius="10px" />
+        <div className="product-list product-list-grid">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="product-item product-item-grid">
+              <Skeleton width="100%" height="190px" borderRadius="10px" />
+            </div>
+          ))}
+        </div>
       </section>
     )
   }
