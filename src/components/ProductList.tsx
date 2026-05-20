@@ -60,6 +60,7 @@ interface ProductCardItemProps {
   layout: 'list' | 'grid'
   index: number
   isSelected: boolean
+  isForwarded: boolean
   selectedActivity: number | null
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
@@ -71,6 +72,7 @@ const ProductCardItem = memo(function ProductCardItem({
   layout,
   index,
   isSelected,
+  isForwarded,
   selectedActivity,
   activityOptions,
   visibleFields,
@@ -99,6 +101,7 @@ const ProductCardItem = memo(function ProductCardItem({
       <Card
         className={classNames('product-card', {
           'product-card-selected': isSelected,
+          'product-card-forwarded': isForwarded && !isSelected,
         })}
         onClick={handleCardClick}
       >
@@ -181,7 +184,7 @@ export function ProductList({ atividade }: ProductListProps) {
   const [selectedActivitiesByProduct, setSelectedActivitiesByProduct] = useState<Record<string, number | null>>({})
   const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([])
   const [bulkActivityId, setBulkActivityId] = useState<number | null>(null)
-  const [showForwardedProducts, setShowForwardedProducts] = useState(false)
+  const [showForwardedProducts, setShowForwardedProducts] = useState(true)
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const hasLoadedPreferencesRef = useRef<number | null>(null)
@@ -792,6 +795,7 @@ export function ProductList({ atividade }: ProductListProps) {
             layout={currentLayout}
             index={index}
             isSelected={selectedProductKeysSet.has(productKey)}
+            isForwarded={isForwardedProduct(produto)}
             selectedActivity={selectedActivitiesByProduct[productKey] ?? null}
             activityOptions={activityOptions}
             visibleFields={visibleFields}
@@ -804,6 +808,7 @@ export function ProductList({ atividade }: ProductListProps) {
     activityOptions,
     selectedActivitiesByProduct,
     selectedProductKeysSet,
+    isForwardedProduct,
     toggleProductSelection,
     visibleFields,
   ])

@@ -658,6 +658,12 @@
   box-shadow: 0 0 0 2px rgba(47, 133, 239, 0.35), var(--wfg-shadow);
 }
 
+.product-card.product-card-forwarded {
+  border-color: #7bc79f;
+  background: #e7f7ee;
+  box-shadow: 0 0 0 2px rgba(29, 154, 88, 0.25), var(--wfg-shadow);
+}
+
 .product-card {
   cursor: pointer;
 }
