@@ -15,7 +15,7 @@ Aplicação React com estratégia **offline-first** para continuidade de uso qua
 Copie o arquivo `.env.example` para `.env` e ajuste a URL:
 
 ```bash
-VITE_API_BASE_URL=https://observador.smvioleta.com.br
+VITE_API_BASE_URL=
 ```
 
 Em produção (Tomcat do cliente), a URL pode apontar para o mesmo domínio do ambiente publicado.
