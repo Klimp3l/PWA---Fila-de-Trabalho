@@ -117,7 +117,7 @@ function App() {
           )}
         />
         <Route
-          path="/home/atividade/:activityId"
+          path="/home/atividade/:activityId/empresa/:companyId"
           element={(
             <ProtectedRoute
               isAuthenticated={authStatus === 'authenticated'}

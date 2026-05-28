@@ -263,6 +263,131 @@
   gap: 10px;
 }
 
+.sync-queue-section {
+  margin-top: 18px;
+  padding: 18px;
+  border-top: 1px solid var(--wfg-line);
+  display: grid;
+  gap: 10px;
+}
+
+.sync-queue-header h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sync-queue-empty {
+  margin: 0;
+  color: var(--wfg-text-soft);
+  font-size: 0.86rem;
+}
+
+.sync-queue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sync-queue-card {
+  border: 1px solid var(--wfg-line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--wfg-shadow);
+}
+
+.sync-queue-card .p-card-content {
+  padding: 0px;
+}
+
+.sync-queue-card-clickable {
+  cursor: pointer;
+}
+
+.sync-queue-card-clickable:hover {
+  border-color: #b8c8e8;
+}
+
+.sync-queue-card.p-card .p-card-body {
+  padding: 10px 12px;
+}
+
+.sync-queue-card-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sync-queue-company,
+.sync-queue-process,
+.sync-queue-activity {
+  margin: 0;
+}
+
+.sync-queue-products-summary {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--wfg-text-soft);
+}
+
+.sync-queue-company {
+  color: var(--wfg-text-soft);
+  font-size: 0.82rem;
+}
+
+.sync-queue-process {
+  color: var(--wfg-text-soft);
+  font-size: 0.78rem;
+}
+
+.sync-queue-sent-at {
+  color: var(--wfg-text-soft);
+  font-size: 0.76rem;
+}
+
+.sync-queue-activity {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sync-queue-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.sync-queue-status {
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.sync-queue-status.status-processing {
+  color: #0b5cab;
+  background: rgba(11, 92, 171, 0.12);
+}
+
+.sync-queue-status.status-pending {
+  color: #6a4a00;
+  background: rgba(217, 158, 18, 0.2);
+}
+
+.sync-queue-status.status-error {
+  color: #9b1f1f;
+  background: rgba(155, 31, 31, 0.12);
+}
+
+.sync-queue-status.status-success {
+  color: #0a8a5d;
+  background: rgba(10, 138, 93, 0.16);
+}
+
+.sync-queue-error-message {
+  margin: 8px 0 0;
+  color: #9b1f1f;
+  font-size: 0.82rem;
+}
+
 .activity-card {
   border: 1px solid var(--wfg-line);
   border-radius: 12px;

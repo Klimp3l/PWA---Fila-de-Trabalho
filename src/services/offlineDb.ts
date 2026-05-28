@@ -1,5 +1,6 @@
 import { openDB, type DBSchema } from 'idb'
 import type {
+  ActivitySyncQueueSnapshot,
   ActivityProductListPreferencesSnapshot,
   ActivityProductSelectionsSnapshot,
   ActivitySnapshot,
@@ -20,6 +21,11 @@ interface ActivityProductListPreferencesRecord {
   value: ActivityProductListPreferencesSnapshot
 }
 
+interface ActivitySyncQueueRecord {
+  key: string
+  value: ActivitySyncQueueSnapshot
+}
+
 interface OfflineDatabaseSchema extends DBSchema {
   activitySnapshots: {
     key: string
@@ -33,15 +39,20 @@ interface OfflineDatabaseSchema extends DBSchema {
     key: string
     value: ActivityProductListPreferencesRecord
   }
+  activitySyncQueue: {
+    key: string
+    value: ActivitySyncQueueRecord
+  }
 }
 
 const DB_NAME = 'fila-trabalho-offline-db'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const ACTIVE_USER_STORAGE_KEY = 'odw:active-user'
 const ANONYMOUS_USER_SCOPE = 'anonymous'
 const ACTIVITIES_SNAPSHOT_KEY = 'atividades'
 const ACTIVITY_PRODUCT_SELECTIONS_KEY = 'activity-product-selections'
 const ACTIVITY_PRODUCT_LIST_PREFERENCES_KEY = 'activity-product-list-preferences'
+const ACTIVITY_SYNC_QUEUE_KEY = 'activity-sync-queue'
 
 const normalizeUserScope = (value: string | null | undefined) => {
   const normalized = value?.trim().toLocaleLowerCase('pt-BR') ?? ''
@@ -78,6 +89,9 @@ const dbPromise = openDB<OfflineDatabaseSchema>(DB_NAME, DB_VERSION, {
     }
     if (!db.objectStoreNames.contains('activityProductListPreferences')) {
       db.createObjectStore('activityProductListPreferences', { keyPath: 'key' })
+    }
+    if (!db.objectStoreNames.contains('activitySyncQueue')) {
+      db.createObjectStore('activitySyncQueue', { keyPath: 'key' })
     }
   },
 })
@@ -196,10 +210,49 @@ export const activityProductListPreferencesRepository = {
   },
 }
 
+export const activitySyncQueueRepository = {
+  async save(snapshot: ActivitySyncQueueSnapshot) {
+    const db = await dbPromise
+    await db.put('activitySyncQueue', {
+      key: buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY),
+      value: snapshot,
+    })
+  },
+
+  async load() {
+    const db = await dbPromise
+    const scopedKey = buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY)
+    const record = await db.get('activitySyncQueue', scopedKey)
+
+    if (record?.value) {
+      return record.value
+    }
+
+    const legacyRecord = await db.get('activitySyncQueue', ACTIVITY_SYNC_QUEUE_KEY)
+
+    if (legacyRecord?.value) {
+      await db.put('activitySyncQueue', {
+        key: scopedKey,
+        value: legacyRecord.value,
+      })
+      await db.delete('activitySyncQueue', ACTIVITY_SYNC_QUEUE_KEY)
+      return legacyRecord.value
+    }
+
+    return record?.value ?? null
+  },
+
+  async clear() {
+    const db = await dbPromise
+    await db.delete('activitySyncQueue', buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY))
+  },
+}
+
 export const clearOfflineActivityData = async () => {
   await Promise.all([
     activitySnapshotRepository.clear(),
     activityProductSelectionRepository.clear(),
     activityProductListPreferencesRepository.clear(),
+    activitySyncQueueRepository.clear(),
   ])
 }

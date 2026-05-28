@@ -77,7 +77,7 @@ export interface ActivitySnapshot {
 export interface ActivityProductSelectionsSnapshot {
   updatedAt: number
   /**
-   * Chave: id da atividade (`idwfatividade`)
+   * Chave: escopo da atividade (`idwfatividade-idempresa`)
    * Valor: mapa da chave do produto para `idwfatividaderealizada` escolhido.
    */
   selectionsByActivityId: Record<string, Record<string, number | null>>
@@ -88,13 +88,60 @@ export interface ActivityProductListPreferences {
   visibleFields: string[]
   sortField: string
   sortDirection: 1 | -1
+  showForwardedProducts: boolean
 }
 
 export interface ActivityProductListPreferencesSnapshot {
   updatedAt: number
   /**
-   * Chave: id da atividade (`idwfatividade`)
+   * Chave: escopo da atividade (`idwfatividade-idempresa`)
    * Valor: preferências de exibição da lista de produtos.
    */
   preferencesByActivityId: Record<string, ActivityProductListPreferences>
+}
+
+export interface EncaminhamentoSyncPayloadItem {
+  idwfocorrencia: number
+  idwfatividadeencaminhamento: number
+  observacao: string
+  idwffilatrabalho: number
+}
+
+export interface EncaminhamentoSyncPayload {
+  idwfprocesso: number
+  encaminhamentos: EncaminhamentoSyncPayloadItem[]
+}
+
+export type ActivitySyncQueueStatus = 'pending' | 'processing' | 'error' | 'success'
+export type ActivitySyncQueueSource = 'home' | 'product-list'
+
+export interface ActivitySyncQueueProductSnapshot {
+  productKey: string
+  idproduto: number
+  codigobarras: string
+  produto: string
+  idwffilatrabalho: number
+  idwfocorrencia: number
+  idwfatividadeencaminhamento: number
+  observacao: string
+}
+
+export interface ActivitySyncQueueItem {
+  submissionId: string
+  activityKey: string
+  activityId: number
+  source: ActivitySyncQueueSource
+  atividade: AtividadeComProdutos
+  payload: EncaminhamentoSyncPayload
+  productCount: number
+  products: ActivitySyncQueueProductSnapshot[]
+  status: ActivitySyncQueueStatus
+  errorMessage: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ActivitySyncQueueSnapshot {
+  updatedAt: number
+  itemsBySubmissionId: Record<string, ActivitySyncQueueItem>
 }

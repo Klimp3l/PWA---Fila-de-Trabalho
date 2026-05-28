@@ -63,6 +63,13 @@ export interface EncaminhamentoUpdatePayload {
   encaminhamentos: EncaminhamentoUpdateItem[]
 }
 
+export interface EncaminhamentoUpdateResponse {
+  msg: string
+  records: number
+  action: string
+  error: string
+}
+
 const parseJson = async (response: Response): Promise<unknown> => {
   return response.json() as Promise<unknown>
 }
@@ -221,7 +228,7 @@ export const getInfoUsuario = async (
 export const updateEncaminhamentos = async (
   payload: EncaminhamentoUpdatePayload,
   baseUrl = API_BASE_URL,
-): Promise<unknown> => {
+): Promise<EncaminhamentoUpdateResponse | null> => {
   const body = new URLSearchParams({
     wffilatrabalho: JSON.stringify(payload),
   })
@@ -235,14 +242,6 @@ export const updateEncaminhamentos = async (
     body,
   })
 
-  const responseText = await response.text()
-  if (!responseText.trim()) {
-    return null
-  }
-
-  try {
-    return JSON.parse(responseText) as unknown
-  } catch {
-    return responseText
-  }
+  const parsed = await parseJson(response)
+  return parsed as EncaminhamentoUpdateResponse | null
 }

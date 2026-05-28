@@ -3,8 +3,11 @@ import {
   activityProductListPreferencesRepository,
   activityProductSelectionRepository,
   activitySnapshotRepository,
+  activitySyncQueueRepository,
 } from './offlineDb'
 import type {
+  ActivitySyncQueueItem,
+  ActivitySyncQueueSnapshot,
   AtividadeProdutoColumn,
   ActivityProductListPreferences,
   ActivityProductListPreferencesSnapshot,
@@ -39,6 +42,10 @@ const createEmptyProductListPreferencesSnapshot = (): ActivityProductListPrefere
   preferencesByActivityId: {},
 })
 
+export const getActivityScopeKey = (
+  activity: Pick<AtividadeComProdutos, 'idwfatividade' | 'idempresa'>,
+) => `${activity.idwfatividade}-${activity.idempresa}`
+
 export const getProdutoAtividadeKey = (produto: Pick<ProdutoAtividade, 'idwffilatrabalho' | 'idwfocorrencia' | 'idproduto'>) =>
   `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
 
@@ -51,7 +58,9 @@ const applyLocalSelections = (
   }
 
   return atividades.map((atividade) => {
-    const selectionsForActivity = selectionsSnapshot.selectionsByActivityId[String(atividade.idwfatividade)]
+    const scopeKey = getActivityScopeKey(atividade)
+    const selectionsForActivity = selectionsSnapshot.selectionsByActivityId[scopeKey]
+      ?? selectionsSnapshot.selectionsByActivityId[String(atividade.idwfatividade)]
 
     if (!selectionsForActivity) {
       return atividade
@@ -225,7 +234,7 @@ const extractRawAtividades = (value: unknown): unknown[] => {
 }
 
 export const saveActivityProductSelections = async (
-  activityId: number,
+  activityScopeKey: string,
   selectionsByProduct: Record<string, number | null>,
 ) => {
   const currentSnapshot = await activityProductSelectionRepository.load() ?? createEmptySelectionsSnapshot()
@@ -233,7 +242,7 @@ export const saveActivityProductSelections = async (
     updatedAt: Date.now(),
     selectionsByActivityId: {
       ...currentSnapshot.selectionsByActivityId,
-      [String(activityId)]: selectionsByProduct,
+      [activityScopeKey]: selectionsByProduct,
     },
   }
 
@@ -241,7 +250,7 @@ export const saveActivityProductSelections = async (
 }
 
 export const saveActivityProductListPreferences = async (
-  activityId: number,
+  activityScopeKey: string,
   preferences: ActivityProductListPreferences,
 ) => {
   const currentSnapshot = await activityProductListPreferencesRepository.load() ?? createEmptyProductListPreferencesSnapshot()
@@ -249,20 +258,105 @@ export const saveActivityProductListPreferences = async (
     updatedAt: Date.now(),
     preferencesByActivityId: {
       ...currentSnapshot.preferencesByActivityId,
-      [String(activityId)]: preferences,
+      [activityScopeKey]: preferences,
     },
   }
 
   await activityProductListPreferencesRepository.save(nextSnapshot)
 }
 
-export const loadActivityProductListPreferences = async (activityId: number) => {
+export const loadActivityProductListPreferences = async (activityScopeKey: string) => {
   const snapshot = await activityProductListPreferencesRepository.load()
   if (!snapshot) {
     return null
   }
 
-  return snapshot.preferencesByActivityId[String(activityId)] ?? null
+  return snapshot.preferencesByActivityId[activityScopeKey] ?? null
+}
+
+export const removeActivityProductSelections = async (
+  activityScopeKey: string,
+) => {
+  const currentSnapshot = await activityProductSelectionRepository.load()
+  if (!currentSnapshot) {
+    return
+  }
+
+  if (!(activityScopeKey in currentSnapshot.selectionsByActivityId)) {
+    return
+  }
+
+  const nextSelections = { ...currentSnapshot.selectionsByActivityId }
+  delete nextSelections[activityScopeKey]
+
+  const nextSnapshot: ActivityProductSelectionsSnapshot = {
+    updatedAt: Date.now(),
+    selectionsByActivityId: nextSelections,
+  }
+
+  await activityProductSelectionRepository.save(nextSnapshot)
+}
+
+export const loadActivitySyncQueueItems = async (): Promise<ActivitySyncQueueItem[]> => {
+  const snapshot = await activitySyncQueueRepository.load()
+  if (!snapshot) {
+    return []
+  }
+
+  const snapshotRecord = snapshot as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
+  const itemsBySubmissionId = snapshotRecord.itemsBySubmissionId
+    ?? snapshotRecord.itemsByActivityId
+    ?? {}
+
+  return Object.values(itemsBySubmissionId)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
+export const upsertActivitySyncQueueItem = async (
+  item: ActivitySyncQueueItem,
+) => {
+  const currentSnapshotRaw = await activitySyncQueueRepository.load()
+  const currentSnapshotRecord = (currentSnapshotRaw as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> } | null)
+  const currentItemsBySubmissionId = currentSnapshotRecord?.itemsBySubmissionId
+    ?? currentSnapshotRecord?.itemsByActivityId
+    ?? {}
+
+  const nextSnapshot: ActivitySyncQueueSnapshot = {
+    updatedAt: Date.now(),
+    itemsBySubmissionId: {
+      ...currentItemsBySubmissionId,
+      [item.submissionId]: {
+        ...item,
+        updatedAt: Date.now(),
+      },
+    },
+  }
+
+  await activitySyncQueueRepository.save(nextSnapshot)
+}
+
+export const removeActivitySyncQueueItem = async (
+  submissionId: string,
+) => {
+  const currentSnapshotRaw = await activitySyncQueueRepository.load()
+  if (!currentSnapshotRaw) {
+    return
+  }
+
+  const currentSnapshotRecord = currentSnapshotRaw as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
+  const nextItems = {
+    ...(currentSnapshotRecord.itemsBySubmissionId
+      ?? currentSnapshotRecord.itemsByActivityId
+      ?? {}),
+  }
+  delete nextItems[submissionId]
+
+  const nextSnapshot: ActivitySyncQueueSnapshot = {
+    updatedAt: Date.now(),
+    itemsBySubmissionId: nextItems,
+  }
+
+  await activitySyncQueueRepository.save(nextSnapshot)
 }
 
 export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComProdutos[]> => {

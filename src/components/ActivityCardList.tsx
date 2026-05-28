@@ -1,3 +1,4 @@
+import { getActivityScopeKey } from '../services/activityData'
 import { ActivityCard } from './ActivityCard'
 import { Message } from 'primereact/message'
 import type { AtividadeComProdutos } from '../types/workflow'
@@ -5,9 +6,9 @@ import type { AtividadeComProdutos } from '../types/workflow'
 interface ActivityCardListProps {
   atividades: AtividadeComProdutos[]
   selectedActivityId: number | null
-  onSelect: (idAtividade: number) => void
+  onSelect: (atividade: AtividadeComProdutos) => void
   onSubmitActivity: (atividade: AtividadeComProdutos) => void
-  submittingActivityId: number | null
+  submittingActivityKey: string | null
 }
 
 export function ActivityCardList({
@@ -15,7 +16,7 @@ export function ActivityCardList({
   selectedActivityId,
   onSelect,
   onSubmitActivity,
-  submittingActivityId,
+  submittingActivityKey,
 }: ActivityCardListProps) {
   if (atividades.length === 0) {
     return (
@@ -37,7 +38,7 @@ export function ActivityCardList({
           isSelected={selectedActivityId === atividade.idwfatividade}
           onSelect={onSelect}
           canSubmit={atividade.produtos.some((produto) => produto.idwfatividaderealizada !== null)}
-          isSubmitting={submittingActivityId === atividade.idwfatividade}
+          isSubmitting={submittingActivityKey === getActivityScopeKey(atividade)}
           onSubmit={onSubmitActivity}
         />
       ))}

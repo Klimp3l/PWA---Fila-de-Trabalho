@@ -1,14 +1,14 @@
 import { Card } from 'primereact/card'
 import { Button } from 'primereact/button'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faBuilding, faPersonWalking } from '@fortawesome/free-solid-svg-icons'
+import { faBuilding, faFile, faPersonWalking } from '@fortawesome/free-solid-svg-icons'
 import type { AtividadeComProdutos } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
 
 interface ActivityCardProps {
   atividade: AtividadeComProdutos
   isSelected: boolean
-  onSelect: (idAtividade: number) => void
+  onSelect: (atividade: AtividadeComProdutos) => void
   canSubmit: boolean
   isSubmitting: boolean
   onSubmit: (atividade: AtividadeComProdutos) => void
@@ -31,7 +31,7 @@ export function ActivityCard({
         <button
           type="button"
           className="activity-card-btn"
-          onClick={() => onSelect(atividade.idwfatividade)}
+          onClick={() => onSelect(atividade)}
         >
           <div className="activity-meta">
             <WorkflowProgressBar
@@ -43,7 +43,7 @@ export function ActivityCard({
           </div>
           <div className="activity-card-content">
             <p className="activity-company"><FontAwesomeIcon icon={faBuilding} /> {atividade.empresa}</p>
-            <p className="activity-process">{atividade.wfprocesso}</p>
+            <p className="activity-process"><FontAwesomeIcon icon={faFile} /> {atividade.wfprocesso}</p>
             <h3><FontAwesomeIcon icon={faPersonWalking} /> {atividade.wfatividade}</h3>
           </div>
         </button>

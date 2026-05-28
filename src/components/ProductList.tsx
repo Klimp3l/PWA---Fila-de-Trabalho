@@ -23,16 +23,19 @@ import {
   faTableCellsLarge,
 } from '@fortawesome/free-solid-svg-icons'
 import type {
+  ActivitySyncQueueItem,
   AtividadeComProdutos,
   AtividadeProdutoColumn,
   ProdutoAtividade,
 } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
 import {
+  getActivityScopeKey,
   getProdutoAtividadeKey,
   loadActivityProductListPreferences,
   saveActivityProductListPreferences,
   saveActivityProductSelections,
+  upsertActivitySyncQueueItem,
 } from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
@@ -53,7 +56,10 @@ import {
   toDropdownActivityId,
 } from './product-list/utils'
 import type { ActivityProductListPreferences } from '../types/workflow'
-import { syncActivitySelectionsInCache } from '../hooks/useAtividadesWithOnlineRefresh'
+import {
+  removeActivityProductsFromCache,
+  syncActivitySelectionsInCache,
+} from '../hooks/useAtividadesWithOnlineRefresh'
 import { updateEncaminhamentos } from '../services/api'
 
 interface ProductCardItemProps {
@@ -67,6 +73,7 @@ interface ProductCardItemProps {
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
   onToggleSelect: (productKey: string, checked: boolean) => void
+  readOnly: boolean
 }
 
 const ProductCardItem = memo(function ProductCardItem({
@@ -80,10 +87,15 @@ const ProductCardItem = memo(function ProductCardItem({
   visibleFields,
   fieldConfigByKey,
   onToggleSelect,
+  readOnly,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
 
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
+    if (readOnly) {
+      return
+    }
+
     const clickTarget = event.target as HTMLElement | null
 
     if (clickTarget?.closest(CARD_INTERACTIVE_SELECTOR)) {
@@ -103,10 +115,10 @@ const ProductCardItem = memo(function ProductCardItem({
     >
       <Card
         className={classNames('product-card', {
-          'product-card-selected': isSelected,
+          'product-card-selected': isSelected && !readOnly,
           'product-card-forwarded': isForwarded && !isSelected,
         })}
-        onClick={handleCardClick}
+        onClick={readOnly ? undefined : handleCardClick}
       >
         <div
           className={classNames('product-card-content', {
@@ -174,6 +186,8 @@ const ProductCardItem = memo(function ProductCardItem({
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
+  readOnlyPackageView?: boolean
+  packageProductKeys?: string[]
 }
 
 type SearchFilterValue = string | number | Date | string[] | boolean | null
@@ -215,7 +229,7 @@ const formatDateForComparison = (value: unknown) => {
   return ''
 }
 
-export function ProductList({ atividade }: ProductListProps) {
+export function ProductList({ atividade, readOnlyPackageView = false, packageProductKeys = [] }: ProductListProps) {
   const NONE_ACTIVITY_OPTION_VALUE = '__none__'
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
   const [visibleFields, setVisibleFields] = useState<string[]>([])
@@ -239,11 +253,24 @@ export function ProductList({ atividade }: ProductListProps) {
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
-  const hasLoadedPreferencesRef = useRef<number | null>(null)
+  const [locallySyncedProductKeys, setLocallySyncedProductKeys] = useState<Set<string>>(new Set())
+  const hasLoadedPreferencesRef = useRef<string | null>(null)
   const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toastRef = useRef<Toast | null>(null)
 
-  const products = useMemo(() => atividade?.produtos ?? [], [atividade])
+  const packageProductKeysSet = useMemo(() => new Set(packageProductKeys), [packageProductKeys])
+
+  const products = useMemo(() => {
+    const baseProducts = atividade?.produtos ?? []
+    const packageFilteredProducts = readOnlyPackageView
+      ? baseProducts.filter((produto) => packageProductKeysSet.has(getProdutoAtividadeKey(produto)))
+      : baseProducts
+
+    if (locallySyncedProductKeys.size === 0) {
+      return packageFilteredProducts
+    }
+    return packageFilteredProducts.filter((produto) => !locallySyncedProductKeys.has(getProdutoAtividadeKey(produto)))
+  }, [atividade, locallySyncedProductKeys, packageProductKeysSet, readOnlyPackageView])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
   const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
   const allFieldOptions = useMemo(() => {
@@ -391,6 +418,10 @@ export function ProductList({ atividade }: ProductListProps) {
   }, [fieldOptions])
 
   useEffect(() => {
+    setLocallySyncedProductKeys(new Set())
+  }, [atividade?.idwfatividade])
+
+  useEffect(() => {
     const initialSelectedActivities = products.reduce<Record<string, number | null>>((accumulator, produto) => {
       accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
       return accumulator
@@ -471,12 +502,12 @@ export function ProductList({ atividade }: ProductListProps) {
       return
     }
 
-    const currentActivityId = atividade.idwfatividade
+    const currentActivityScopeKey = getActivityScopeKey(atividade)
     hasLoadedPreferencesRef.current = null
 
     let isCancelled = false
 
-    void loadActivityProductListPreferences(currentActivityId)
+    void loadActivityProductListPreferences(currentActivityScopeKey)
       .then((preferences) => {
         if (isCancelled || hasLoadedPreferencesRef.current !== null) {
           return
@@ -499,18 +530,20 @@ export function ProductList({ atividade }: ProductListProps) {
           setSortField(
             availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
           )
+          setShowForwardedProducts(preferences.showForwardedProducts ?? true)
         } else {
           setLayout('grid')
           setSortDirection(1)
           setSortField(defaultSortField)
+          setShowForwardedProducts(true)
         }
 
-        hasLoadedPreferencesRef.current = currentActivityId
+        hasLoadedPreferencesRef.current = currentActivityScopeKey
       })
       .catch((error) => {
         console.warn('[ProductList] Falha ao carregar preferências de visualização da atividade.', error)
         if (!isCancelled && hasLoadedPreferencesRef.current === null) {
-          hasLoadedPreferencesRef.current = currentActivityId
+          hasLoadedPreferencesRef.current = currentActivityScopeKey
         }
       })
 
@@ -520,7 +553,7 @@ export function ProductList({ atividade }: ProductListProps) {
   }, [atividade, fieldOptions, orderableFieldOptions])
 
   useEffect(() => {
-    if (!atividade || hasLoadedPreferencesRef.current !== atividade.idwfatividade) {
+    if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
       return
     }
 
@@ -529,12 +562,13 @@ export function ProductList({ atividade }: ProductListProps) {
       visibleFields: visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
       sortField,
       sortDirection,
+      showForwardedProducts,
     }
 
-    void saveActivityProductListPreferences(atividade.idwfatividade, preferences).catch((error) => {
+    void saveActivityProductListPreferences(getActivityScopeKey(atividade), preferences).catch((error) => {
       console.warn('[ProductList] Falha ao persistir preferências de visualização da atividade.', error)
     })
-  }, [atividade, layout, sortDirection, sortField, visibleFields])
+  }, [atividade, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
 
   useEffect(() => {
     if (!atividade) {
@@ -545,12 +579,12 @@ export function ProductList({ atividade }: ProductListProps) {
       clearTimeout(saveSelectionsTimeoutRef.current)
     }
 
-    const activityId = atividade.idwfatividade
+    const activityScopeKey = getActivityScopeKey(atividade)
     saveSelectionsTimeoutRef.current = setTimeout(() => {
-      void saveActivityProductSelections(activityId, selectedActivitiesByProduct).catch((error) => {
+      void saveActivityProductSelections(activityScopeKey, selectedActivitiesByProduct).catch((error) => {
         console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
       })
-      syncActivitySelectionsInCache(activityId, selectedActivitiesByProduct)
+      syncActivitySelectionsInCache(activityScopeKey, selectedActivitiesByProduct)
     }, 200)
 
     return () => {
@@ -638,7 +672,8 @@ export function ProductList({ atividade }: ProductListProps) {
         return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(String(searchValue ?? '').toLocaleLowerCase('pt-BR'))
       })
 
-    const filtered = showForwardedProducts
+    const shouldShowForwardedProducts = readOnlyPackageView || showForwardedProducts
+    const filtered = shouldShowForwardedProducts
       ? filteredBySearch
       : filteredBySearch.filter((produto) => !isForwardedProduct(produto))
 
@@ -658,6 +693,7 @@ export function ProductList({ atividade }: ProductListProps) {
     searchField,
     selectedSearchFieldType,
     searchValue,
+    readOnlyPackageView,
     showForwardedProducts,
     isForwardedProduct,
     sortDirection,
@@ -797,10 +833,15 @@ export function ProductList({ atividade }: ProductListProps) {
   )
 
   const handleSubmitEncaminhamentos = useCallback(async () => {
+    if (readOnlyPackageView) {
+      return
+    }
+
     if (!atividade || isSubmittingEncaminhamentos) {
       return
     }
 
+    const submittedProductKeys = new Set<string>()
     const encaminhamentos = products
       .map((produto) => {
         const productKey = getProdutoAtividadeKey(produto)
@@ -809,6 +850,8 @@ export function ProductList({ atividade }: ProductListProps) {
         if (selectedValue === null) {
           return null
         }
+
+        submittedProductKeys.add(productKey)
 
         return {
           idwfocorrencia: produto.idwfocorrencia,
@@ -834,26 +877,89 @@ export function ProductList({ atividade }: ProductListProps) {
     }
 
     const idwfprocesso = atividade.idwfprocesso
+    const activityScopeKey = getActivityScopeKey(atividade)
+    const now = Date.now()
+    const submissionId = `${now}-${Math.random().toString(36).slice(2, 10)}`
+    const productsInSubmission = products
+      .filter((produto) => submittedProductKeys.has(getProdutoAtividadeKey(produto)))
+      .map((produto) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada ?? 0
+        return {
+          productKey,
+          idproduto: produto.idproduto,
+          codigobarras: produto.codigobarras,
+          produto: produto.produto,
+          idwffilatrabalho: produto.idwffilatrabalho,
+          idwfocorrencia: produto.idwfocorrencia,
+          idwfatividadeencaminhamento: selectedValue,
+          observacao: produto.observacao ?? '',
+        }
+      })
+    const queueItem: ActivitySyncQueueItem = {
+      submissionId,
+      activityKey: activityScopeKey,
+      activityId: atividade.idwfatividade,
+      source: 'product-list',
+      atividade,
+      payload: {
+        idwfprocesso,
+        encaminhamentos,
+      },
+      productCount: productsInSubmission.length,
+      products: productsInSubmission,
+      status: 'pending',
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+    }
 
     try {
       setIsSubmittingEncaminhamentos(true)
-      const response = await updateEncaminhamentos({
-        idwfprocesso,
-        encaminhamentos,
-      })
+      await upsertActivitySyncQueueItem(queueItem)
 
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response ?? '')
-      const hasError = responseText.toLowerCase().includes('erro')
+      const response = await updateEncaminhamentos(queueItem.payload)
 
+      const hasError = response?.error !== ''
       if (hasError) {
+        const errorMessage = response?.error ?? 'O servidor retornou erro ao enviar os encaminhamentos.'
+        await upsertActivitySyncQueueItem({
+          ...queueItem,
+          status: 'error',
+          errorMessage,
+          updatedAt: Date.now(),
+        })
         toastRef.current?.show({
           severity: 'error',
           summary: 'Falha ao enviar',
-          detail: responseText || 'O servidor retornou erro ao enviar os encaminhamentos.',
+          detail: errorMessage,
           life: 7000,
         })
         return
       }
+
+      await upsertActivitySyncQueueItem({
+        ...queueItem,
+        status: 'success',
+        errorMessage: null,
+        updatedAt: Date.now(),
+      })
+      removeActivityProductsFromCache(activityScopeKey, submittedProductKeys)
+      setLocallySyncedProductKeys((current) => {
+        const next = new Set(current)
+        submittedProductKeys.forEach((key) => {
+          next.add(key)
+        })
+        return next
+      })
+      setSelectedActivitiesByProduct((current) => {
+        const next = { ...current }
+        submittedProductKeys.forEach((key) => {
+          delete next[key]
+        })
+        return next
+      })
+      setSelectedProductKeys((current) => current.filter((key) => !submittedProductKeys.has(key)))
 
       toastRef.current?.show({
         severity: 'success',
@@ -862,16 +968,23 @@ export function ProductList({ atividade }: ProductListProps) {
       })
     } catch (error) {
       console.error('[ProductList] Falha ao enviar encaminhamentos.', error)
+      const errorMessage = error instanceof Error ? error.message : 'Não foi possível enviar os encaminhamentos.'
+      await upsertActivitySyncQueueItem({
+        ...queueItem,
+        status: 'error',
+        errorMessage,
+        updatedAt: Date.now(),
+      })
       toastRef.current?.show({
         severity: 'error',
         summary: 'Falha ao enviar',
-        detail: error instanceof Error ? error.message : 'Não foi possível enviar os encaminhamentos.',
+        detail: errorMessage,
         life: 7000,
       })
     } finally {
       setIsSubmittingEncaminhamentos(false)
     }
-  }, [atividade, isSubmittingEncaminhamentos, products, selectedActivitiesByProduct])
+  }, [atividade, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct])
 
   const header = () => (
     <div className="product-list-header">
@@ -917,26 +1030,28 @@ export function ProductList({ atividade }: ProductListProps) {
               })
             }
           />
-          <Button
-            type="button"
-            icon={<FontAwesomeIcon icon={faPersonWalking} />}
-            text
-            rounded
-            className={classNames({ 'product-control-toggle-active': showBulkControls })}
-            aria-label={showBulkControls ? 'Fechar ações em lote' : 'Abrir ações em lote'}
-            onClick={() =>
-              setShowBulkControls((current) => {
-                const next = !current
+          {!readOnlyPackageView && (
+            <Button
+              type="button"
+              icon={<FontAwesomeIcon icon={faPersonWalking} />}
+              text
+              rounded
+              className={classNames({ 'product-control-toggle-active': showBulkControls })}
+              aria-label={showBulkControls ? 'Fechar ações em lote' : 'Abrir ações em lote'}
+              onClick={() =>
+                setShowBulkControls((current) => {
+                  const next = !current
 
-                if (next) {
-                  setShowControls(false)
-                  setShowMarketFilters(false)
-                }
+                  if (next) {
+                    setShowControls(false)
+                    setShowMarketFilters(false)
+                  }
 
-                return next
-              })
-            }
-          />
+                  return next
+                })
+              }
+            />
+          )}
         </div>
         <DataViewLayoutOptions
           layout={layout}
@@ -946,66 +1061,68 @@ export function ProductList({ atividade }: ProductListProps) {
         />
       </div>
       {showBulkControls && (
-        <div className="product-list-control-panel">
+        !readOnlyPackageView && (
+          <div className="product-list-control-panel">
 
-          <div className="product-display-config">
-            <InputSwitch
-              inputId="product-show-forwarded"
-              className="product-show-forwarded-switch"
-              checked={showForwardedProducts}
-              onChange={(event: InputSwitchChangeEvent) => setShowForwardedProducts(Boolean(event.value))}
-            />
-            <label htmlFor="product-show-forwarded">Encaminhados</label>
-          </div>
-          <div className="product-bulk-selection-row">
-            <Checkbox
-              inputId="product-select-page"
-              checked={areAllPagedProductsSelected}
-              onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
-            />
-            <label htmlFor="product-select-page">Selecionar página</label>
-            <div className="product-bulk-count">
-              {selectedProductKeys.length > 0 && (
-                <Button
-                  type="button"
-                  icon={<FontAwesomeIcon icon={faBroom} />}
-                  text
-                  rounded
-                  aria-label="Limpar selecionados"
-                  onClick={clearSelectedProducts}
-                />
-              )}
-              <span >{selectedProductKeys.length} selecionado(s)</span>
+            <div className="product-display-config">
+              <InputSwitch
+                inputId="product-show-forwarded"
+                className="product-show-forwarded-switch"
+                checked={showForwardedProducts}
+                onChange={(event: InputSwitchChangeEvent) => setShowForwardedProducts(Boolean(event.value))}
+              />
+              <label htmlFor="product-show-forwarded">Encaminhados</label>
+            </div>
+            <div className="product-bulk-selection-row">
+              <Checkbox
+                inputId="product-select-page"
+                checked={areAllPagedProductsSelected}
+                onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
+              />
+              <label htmlFor="product-select-page">Selecionar página</label>
+              <div className="product-bulk-count">
+                {selectedProductKeys.length > 0 && (
+                  <Button
+                    type="button"
+                    icon={<FontAwesomeIcon icon={faBroom} />}
+                    text
+                    rounded
+                    aria-label="Limpar selecionados"
+                    onClick={clearSelectedProducts}
+                  />
+                )}
+                <span >{selectedProductKeys.length} selecionado(s)</span>
+              </div>
+            </div>
+            <div className="product-bulk-actions-row">
+              <Dropdown
+                inputId="product-bulk-activity"
+                value={bulkActivityId}
+                onChange={(event: DropdownChangeEvent) => {
+                  const value = event.value
+                  if (value === NONE_ACTIVITY_OPTION_VALUE) {
+                    setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
+                    return
+                  }
+                  setBulkActivityId(toDropdownActivityId(value))
+                }}
+                options={bulkActivityOptions}
+                optionLabel="label"
+                optionValue="value"
+                placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
+                className="product-bulk-dropdown"
+                disabled={bulkActivityOptions.length === 0}
+                showClear
+              />
+              <Button
+                type="button"
+                label="Aplicar aos selecionados"
+                onClick={applyBulkActivityToSelected}
+                disabled={selectedProductKeys.length === 0 || bulkActivityId === null}
+              />
             </div>
           </div>
-          <div className="product-bulk-actions-row">
-            <Dropdown
-              inputId="product-bulk-activity"
-              value={bulkActivityId}
-              onChange={(event: DropdownChangeEvent) => {
-                const value = event.value
-                if (value === NONE_ACTIVITY_OPTION_VALUE) {
-                  setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
-                  return
-                }
-                setBulkActivityId(toDropdownActivityId(value))
-              }}
-              options={bulkActivityOptions}
-              optionLabel="label"
-              optionValue="value"
-              placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
-              className="product-bulk-dropdown"
-              disabled={bulkActivityOptions.length === 0}
-              showClear
-            />
-            <Button
-              type="button"
-              label="Aplicar aos selecionados"
-              onClick={applyBulkActivityToSelected}
-              disabled={selectedProductKeys.length === 0 || bulkActivityId === null}
-            />
-          </div>
-        </div>
+        )
       )}
       {showControls && (
         <div className="product-list-control-panel">
@@ -1185,11 +1302,12 @@ export function ProductList({ atividade }: ProductListProps) {
             index={index}
             isSelected={selectedProductKeysSet.has(productKey)}
             isForwarded={isForwardedProduct(produto)}
-            selectedActivity={selectedActivitiesByProduct[productKey] ?? null}
+            selectedActivity={selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada ?? null}
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
             onToggleSelect={toggleProductSelection}
+            readOnly={readOnlyPackageView}
           />
         )
       })}
@@ -1226,26 +1344,28 @@ export function ProductList({ atividade }: ProductListProps) {
           <>
             <span className="product-panel-subtitle"><FontAwesomeIcon icon={faBuilding} />{atividade.empresa} | {atividade.wfprocesso}</span>
             <h2 className="product-panel-title"><FontAwesomeIcon icon={faPersonWalking} />{atividade.wfatividade}</h2>
-            <div className="product-panel-submit-row">
-              <WorkflowProgressBar
-                completed={forwardedProductsCount}
-                total={products.length}
-                itemLabel="produtos encaminhados"
-                className="product-progress-overview"
-              >
-                <Button
-                  type="button"
-                  label="Enviar"
-                  icon="pi pi-send"
-                  className="app-btn primary"
-                  onClick={() => {
-                    void handleSubmitEncaminhamentos()
-                  }}
-                  loading={isSubmittingEncaminhamentos}
-                  disabled={!hasEncaminhamentosToSubmit}
-                />
-              </WorkflowProgressBar>
-            </div>
+            {!readOnlyPackageView && (
+              <div className="product-panel-submit-row">
+                <WorkflowProgressBar
+                  completed={forwardedProductsCount}
+                  total={products.length}
+                  itemLabel="produtos encaminhados"
+                  className="product-progress-overview"
+                >
+                  <Button
+                    type="button"
+                    label="Enviar"
+                    icon="pi pi-send"
+                    className="app-btn primary"
+                    onClick={() => {
+                      void handleSubmitEncaminhamentos()
+                    }}
+                    loading={isSubmittingEncaminhamentos}
+                    disabled={!hasEncaminhamentosToSubmit}
+                  />
+                </WorkflowProgressBar>
+              </div>
+            )}
             <div
               className="p-dataview p-component product-dataview"
             >
