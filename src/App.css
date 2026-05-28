@@ -271,9 +271,47 @@
   gap: 10px;
 }
 
+.sync-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .sync-queue-header h4 {
   margin: 0;
   font-size: 1rem;
+}
+
+.sync-queue-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sync-queue-legend-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.sync-queue-legend-chip.status-processing {
+  color: #0b5cab;
+  background: rgba(11, 92, 171, 0.12);
+}
+
+.sync-queue-legend-chip.status-pending {
+  color: #6a4a00;
+  background: rgba(217, 158, 18, 0.2);
+}
+
+.sync-queue-legend-chip.status-error {
+  color: #9b1f1f;
+  background: rgba(155, 31, 31, 0.12);
 }
 
 .sync-queue-empty {
@@ -386,6 +424,11 @@
   margin: 8px 0 0;
   color: #9b1f1f;
   font-size: 0.82rem;
+}
+
+.sync-queue-load-more {
+  display: flex;
+  justify-content: center;
 }
 
 .activity-card {
@@ -916,6 +959,15 @@
   .home-page-actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .sync-queue-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .sync-queue-legend {
+    justify-content: flex-start;
   }
 
   .product-list-header {

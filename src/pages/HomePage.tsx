@@ -53,6 +53,8 @@ const formatSubmissionDateTime = (timestamp: number) => (
   })
 )
 
+const PROCESSINGS_PAGE_SIZE = 5
+
 export function HomePage() {
   const { atividades, isLoading, reloadAtividades } = useAtividadesWithOnlineRefresh('HomePage')
   const navigate = useNavigate()
@@ -67,9 +69,34 @@ export function HomePage() {
   const [enqueuingActivityKey, setEnqueuingActivityKey] = useState<string | null>(null)
   const [processingSubmissionId, setProcessingSubmissionId] = useState<string | null>(null)
   const [syncQueueItems, setSyncQueueItems] = useState<ActivitySyncQueueItem[]>([])
+  const [visibleProcessingsCount, setVisibleProcessingsCount] = useState(PROCESSINGS_PAGE_SIZE)
   const [optimisticRemovedProductKeysByActivity, setOptimisticRemovedProductKeysByActivity] = useState<Record<string, Set<string>>>({})
   const sortedSyncQueueItems = useMemo(() => {
     return [...syncQueueItems].sort((left, right) => right.createdAt - left.createdAt)
+  }, [syncQueueItems])
+  const visibleSyncQueueItems = useMemo(
+    () => sortedSyncQueueItems.slice(0, visibleProcessingsCount),
+    [sortedSyncQueueItems, visibleProcessingsCount],
+  )
+  const hasMoreProcessings = sortedSyncQueueItems.length > visibleProcessingsCount
+  const queueStatusLegend = useMemo(() => {
+    return syncQueueItems.reduce(
+      (accumulator, item) => {
+        if (item.status === 'pending') {
+          accumulator.pending += 1
+        } else if (item.status === 'processing') {
+          accumulator.processing += 1
+        } else if (item.status === 'error') {
+          accumulator.error += 1
+        }
+        return accumulator
+      },
+      {
+        pending: 0,
+        processing: 0,
+        error: 0,
+      },
+    )
   }, [syncQueueItems])
 
   const displayedAtividades = useMemo(() => {
@@ -112,6 +139,13 @@ export function HomePage() {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  useEffect(() => {
+    setVisibleProcessingsCount((current) => {
+      const minimum = Math.min(PROCESSINGS_PAGE_SIZE, sortedSyncQueueItems.length)
+      return Math.max(minimum, Math.min(current, sortedSyncQueueItems.length))
+    })
+  }, [sortedSyncQueueItems.length])
 
   useEffect(() => {
     void loadActivitySyncQueueItems()
@@ -406,6 +440,11 @@ export function HomePage() {
       <section className="sync-queue-section">
         <div className="sync-queue-header">
           <h4>Processamentos</h4>
+          <div className="sync-queue-legend">
+            <span className="sync-queue-legend-chip status-pending">Na fila ({queueStatusLegend.pending})</span>
+            <span className="sync-queue-legend-chip status-processing">Processando ({queueStatusLegend.processing})</span>
+            <span className="sync-queue-legend-chip status-error">Erro ({queueStatusLegend.error})</span>
+          </div>
         </div>
         {syncQueueItems.length === 0
           ? (
@@ -413,7 +452,7 @@ export function HomePage() {
           )
           : (
             <div className="sync-queue-list">
-              {sortedSyncQueueItems.map((item) => (
+              {visibleSyncQueueItems.map((item) => (
                 (() => {
                   const packageProducts = item.products ?? []
                   const packageCount = item.productCount ?? packageProducts.length ?? item.payload.encaminhamentos.length
@@ -473,6 +512,19 @@ export function HomePage() {
                   )
                 })()
               ))}
+              {hasMoreProcessings && (
+                <div className="sync-queue-load-more">
+                  <Button
+                    type="button"
+                    label="Ver mais"
+                    icon="pi pi-chevron-down"
+                    className="app-btn default"
+                    onClick={() => {
+                      setVisibleProcessingsCount((current) => current + PROCESSINGS_PAGE_SIZE)
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
       </section>

@@ -9,10 +9,12 @@ import { HomePage } from './pages/HomePage'
 import { ActivityProductsPage } from './pages/ActivityProductsPage'
 import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 import { setOfflineDataUserScope } from './services/offlineDb'
+import { removeOldSuccessfulSyncQueueItems } from './services/activityData'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
 const AUTH_STORAGE_KEY = 'odw:is-authenticated'
 const AUTH_USER_LABEL_STORAGE_KEY = 'odw:user-label'
+const TWO_DAYS_IN_MS = 2 * 24 * 60 * 60 * 1000
 
 const getUserLabelFromStorage = () => {
   if (typeof window === 'undefined') {
@@ -73,6 +75,7 @@ function App() {
 
       clearAtividadesCache()
       setOfflineDataUserScope(userIdScope)
+      await removeOldSuccessfulSyncQueueItems(TWO_DAYS_IN_MS)
       localStorage.setItem(AUTH_STORAGE_KEY, 'true')
       localStorage.setItem(AUTH_USER_LABEL_STORAGE_KEY, nextUserLabel)
       setAuthStatus('authenticated')

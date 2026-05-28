@@ -359,6 +359,42 @@ export const removeActivitySyncQueueItem = async (
   await activitySyncQueueRepository.save(nextSnapshot)
 }
 
+export const removeOldSuccessfulSyncQueueItems = async (
+  olderThanMs: number,
+) => {
+  const snapshot = await activitySyncQueueRepository.load()
+  if (!snapshot) {
+    return
+  }
+
+  const snapshotRecord = snapshot as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
+  const currentItemsBySubmissionId = snapshotRecord.itemsBySubmissionId
+    ?? snapshotRecord.itemsByActivityId
+    ?? {}
+
+  const now = Date.now()
+  const nextItemsBySubmissionId = Object.entries(currentItemsBySubmissionId).reduce<Record<string, ActivitySyncQueueItem>>(
+    (accumulator, [submissionId, item]) => {
+      const referenceTimestamp = Math.max(item.updatedAt ?? 0, item.createdAt ?? 0)
+      const isOldSuccess = item.status === 'success' && now - referenceTimestamp > olderThanMs
+
+      if (!isOldSuccess) {
+        accumulator[submissionId] = item
+      }
+
+      return accumulator
+    },
+    {},
+  )
+
+  const nextSnapshot: ActivitySyncQueueSnapshot = {
+    updatedAt: Date.now(),
+    itemsBySubmissionId: nextItemsBySubmissionId,
+  }
+
+  await activitySyncQueueRepository.save(nextSnapshot)
+}
+
 export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComProdutos[]> => {
   const localSelectionsSnapshot = await activityProductSelectionRepository.load()
 
