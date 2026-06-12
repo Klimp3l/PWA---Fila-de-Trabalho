@@ -17,13 +17,13 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faBroom,
   faBuilding,
+  faEye,
   faLayerGroup,
   faList,
   faPersonWalking,
   faTableCellsLarge,
 } from '@fortawesome/free-solid-svg-icons'
 import type {
-  ActivitySyncQueueItem,
   AtividadeComProdutos,
   AtividadeProdutoColumn,
   ProdutoAtividade,
@@ -33,9 +33,9 @@ import {
   getActivityScopeKey,
   getProdutoAtividadeKey,
   loadActivityProductListPreferences,
+  removeActivityProductSelections,
   saveActivityProductListPreferences,
   saveActivityProductSelections,
-  upsertActivitySyncQueueItem,
 } from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
@@ -60,7 +60,8 @@ import {
   removeActivityProductsFromCache,
   syncActivitySelectionsInCache,
 } from '../hooks/useAtividadesWithOnlineRefresh'
-import { updateEncaminhamentos } from '../services/api'
+import { useActivitySyncQueue } from '../context/ActivitySyncQueueContext'
+import { createActivitySyncQueueItem, getQueueItemProductKeys } from '../services/activitySyncQueueUtils'
 
 interface ProductCardItemProps {
   produto: ProdutoAtividade
@@ -254,9 +255,21 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
   const [locallySyncedProductKeys, setLocallySyncedProductKeys] = useState<Set<string>>(new Set())
+  const { enqueueForSync } = useActivitySyncQueue()
   const hasLoadedPreferencesRef = useRef<string | null>(null)
   const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toastRef = useRef<Toast | null>(null)
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null)
+  const [isStickyHeaderStuck, setIsStickyHeaderStuck] = useState(false)
+  const bulkActivityDropdownRef = useRef<Dropdown>(null)
+  const visibleFieldsMultiSelectRef = useRef<MultiSelect>(null)
+  const searchFieldDropdownRef = useRef<Dropdown>(null)
+  const searchSelectDropdownRef = useRef<Dropdown>(null)
+  const searchMultipleSelectRef = useRef<MultiSelect>(null)
+  const searchBooleanDropdownRef = useRef<Dropdown>(null)
+  const sortFieldDropdownRef = useRef<Dropdown>(null)
+  const searchDateCalendarRef = useRef<Calendar>(null)
+  const marketFilterDropdownRefs = useRef<Partial<Record<MarketFieldKey, Dropdown | null>>>({})
 
   const packageProductKeysSet = useMemo(() => new Set(packageProductKeys), [packageProductKeys])
 
@@ -570,6 +583,66 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     })
   }, [atividade, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
 
+  const setMarketFilterDropdownRef = useCallback((field: MarketFieldKey, element: Dropdown | null) => {
+    marketFilterDropdownRefs.current[field] = element
+  }, [])
+
+  useEffect(() => {
+    const stickyHeaderElement = stickyHeaderRef.current
+
+    if (!stickyHeaderElement) {
+      return
+    }
+
+    let animationFrameId: number | null = null
+
+    const closeFloatingPanels = () => {
+      visibleFieldsMultiSelectRef.current?.hide()
+      searchFieldDropdownRef.current?.hide()
+      searchSelectDropdownRef.current?.hide()
+      searchMultipleSelectRef.current?.hide()
+      searchBooleanDropdownRef.current?.hide()
+      sortFieldDropdownRef.current?.hide()
+      bulkActivityDropdownRef.current?.hide()
+      ;(searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
+      MARKET_FIELD_KEYS.forEach((field) => {
+        marketFilterDropdownRefs.current[field]?.hide()
+      })
+    }
+
+    const updateStickyState = () => {
+      const { top } = stickyHeaderElement.getBoundingClientRect()
+      setIsStickyHeaderStuck(top <= 0)
+    }
+
+    const handleScroll = () => {
+      if (animationFrameId !== null) {
+        return
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null
+        const { top } = stickyHeaderElement.getBoundingClientRect()
+        if (top <= 0) {
+          closeFloatingPanels()
+        }
+        updateStickyState()
+      })
+    }
+
+    updateStickyState()
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleScroll)
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
+      window.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('resize', handleScroll)
+    }
+  }, [])
+
   useEffect(() => {
     if (!atividade) {
       return
@@ -841,33 +914,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       return
     }
 
-    const submittedProductKeys = new Set<string>()
-    const encaminhamentos = products
-      .map((produto) => {
-        const productKey = getProdutoAtividadeKey(produto)
-        const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+    const queueItem = createActivitySyncQueueItem({
+      atividade,
+      source: 'product-list',
+      selectedActivitiesByProduct,
+      products,
+    })
 
-        if (selectedValue === null) {
-          return null
-        }
-
-        submittedProductKeys.add(productKey)
-
-        return {
-          idwfocorrencia: produto.idwfocorrencia,
-          idwfatividadeencaminhamento: selectedValue,
-          observacao: produto.observacao ?? '',
-          idwffilatrabalho: produto.idwffilatrabalho,
-        }
-      })
-      .filter((value): value is {
-        idwfocorrencia: number
-        idwfatividadeencaminhamento: number
-        observacao: string
-        idwffilatrabalho: number
-      } => value !== null)
-
-    if (encaminhamentos.length === 0) {
+    if (!queueItem) {
       toastRef.current?.show({
         severity: 'warn',
         summary: 'Nada para enviar',
@@ -876,75 +930,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       return
     }
 
-    const idwfprocesso = atividade.idwfprocesso
+    const submittedProductKeys = getQueueItemProductKeys(queueItem)
     const activityScopeKey = getActivityScopeKey(atividade)
-    const now = Date.now()
-    const submissionId = `${now}-${Math.random().toString(36).slice(2, 10)}`
-    const productsInSubmission = products
-      .filter((produto) => submittedProductKeys.has(getProdutoAtividadeKey(produto)))
-      .map((produto) => {
-        const productKey = getProdutoAtividadeKey(produto)
-        const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada ?? 0
-        return {
-          productKey,
-          idproduto: produto.idproduto,
-          codigobarras: produto.codigobarras,
-          produto: produto.produto,
-          idwffilatrabalho: produto.idwffilatrabalho,
-          idwfocorrencia: produto.idwfocorrencia,
-          idwfatividadeencaminhamento: selectedValue,
-          observacao: produto.observacao ?? '',
-        }
-      })
-    const queueItem: ActivitySyncQueueItem = {
-      submissionId,
-      activityKey: activityScopeKey,
-      activityId: atividade.idwfatividade,
-      source: 'product-list',
-      atividade,
-      payload: {
-        idwfprocesso,
-        encaminhamentos,
-      },
-      productCount: productsInSubmission.length,
-      products: productsInSubmission,
-      status: 'pending',
-      errorMessage: null,
-      createdAt: now,
-      updatedAt: now,
-    }
 
     try {
       setIsSubmittingEncaminhamentos(true)
-      await upsertActivitySyncQueueItem(queueItem)
-
-      const response = await updateEncaminhamentos(queueItem.payload)
-
-      const hasError = response?.error !== ''
-      if (hasError) {
-        const errorMessage = response?.error ?? 'O servidor retornou erro ao enviar os encaminhamentos.'
-        await upsertActivitySyncQueueItem({
-          ...queueItem,
-          status: 'error',
-          errorMessage,
-          updatedAt: Date.now(),
-        })
-        toastRef.current?.show({
-          severity: 'error',
-          summary: 'Falha ao enviar',
-          detail: errorMessage,
-          life: 7000,
-        })
-        return
-      }
-
-      await upsertActivitySyncQueueItem({
-        ...queueItem,
-        status: 'success',
-        errorMessage: null,
-        updatedAt: Date.now(),
-      })
+      await enqueueForSync(queueItem)
       removeActivityProductsFromCache(activityScopeKey, submittedProductKeys)
+      await removeActivityProductSelections(activityScopeKey)
       setLocallySyncedProductKeys((current) => {
         const next = new Set(current)
         submittedProductKeys.forEach((key) => {
@@ -963,28 +956,22 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
       toastRef.current?.show({
         severity: 'success',
-        summary: 'Enviado com sucesso',
-        detail: 'Os encaminhamentos da atividade foram enviados.',
+        summary: 'Envio enfileirado',
+        detail: 'Os encaminhamentos foram adicionados a fila e serao processados em background.',
       })
     } catch (error) {
-      console.error('[ProductList] Falha ao enviar encaminhamentos.', error)
-      const errorMessage = error instanceof Error ? error.message : 'Não foi possível enviar os encaminhamentos.'
-      await upsertActivitySyncQueueItem({
-        ...queueItem,
-        status: 'error',
-        errorMessage,
-        updatedAt: Date.now(),
-      })
+      console.error('[ProductList] Falha ao enfileirar encaminhamentos.', error)
+      const errorMessage = error instanceof Error ? error.message : 'Nao foi possivel enfileirar os encaminhamentos.'
       toastRef.current?.show({
         severity: 'error',
-        summary: 'Falha ao enviar',
+        summary: 'Falha ao enfileirar',
         detail: errorMessage,
         life: 7000,
       })
     } finally {
       setIsSubmittingEncaminhamentos(false)
     }
-  }, [atividade, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct])
+  }, [atividade, enqueueForSync, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct])
 
   const header = () => (
     <div className="product-list-header">
@@ -1053,6 +1040,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             />
           )}
         </div>
+        {readOnlyPackageView && (
+          <>
+            <span className="product-list-view-mode"><FontAwesomeIcon icon={faEye} /> Modo visualização</span>
+          </>
+        )}
         <DataViewLayoutOptions
           layout={layout}
           onChange={(event) => setLayout(event.value as 'list' | 'grid')}
@@ -1096,6 +1088,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             </div>
             <div className="product-bulk-actions-row">
               <Dropdown
+                ref={bulkActivityDropdownRef}
                 inputId="product-bulk-activity"
                 value={bulkActivityId}
                 onChange={(event: DropdownChangeEvent) => {
@@ -1129,6 +1122,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           <div className="product-field-select">
             <span className="product-control-label">Campos visíveis</span>
             <MultiSelect
+              ref={visibleFieldsMultiSelectRef}
               inputId="product-visible-fields"
               value={visibleFields}
               onChange={(event: MultiSelectChangeEvent) => setVisibleFields(event.value as string[])}
@@ -1143,6 +1137,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           <div className="product-search-row">
             <span className="product-control-label">Buscar em</span>
             <Dropdown
+              ref={searchFieldDropdownRef}
               inputId="product-search-field"
               filter
               value={searchField}
@@ -1172,6 +1167,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             )}
             {selectedSearchFieldType === 'date' && (
               <Calendar
+                ref={searchDateCalendarRef}
                 value={searchValue instanceof Date ? searchValue : null}
                 onChange={(event) => setSearchValue(event.value instanceof Date ? event.value : null)}
                 dateFormat="yy-mm-dd"
@@ -1182,6 +1178,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             )}
             {selectedSearchFieldType === 'select' && (
               <Dropdown
+                ref={searchSelectDropdownRef}
                 value={typeof searchValue === 'string' ? searchValue : null}
                 onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as string | null) ?? null)}
                 options={searchSelectOptions}
@@ -1195,6 +1192,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             )}
             {selectedSearchFieldType === 'multipleSelect' && (
               <MultiSelect
+                ref={searchMultipleSelectRef}
                 value={Array.isArray(searchValue) ? searchValue : []}
                 onChange={(event: MultiSelectChangeEvent) => setSearchValue((event.value as string[]) ?? [])}
                 options={searchSelectOptions}
@@ -1208,6 +1206,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             )}
             {selectedSearchFieldType === 'boolean' && (
               <Dropdown
+                ref={searchBooleanDropdownRef}
                 value={typeof searchValue === 'boolean' ? searchValue : null}
                 onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as boolean | null) ?? null)}
                 options={[
@@ -1225,6 +1224,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           <div className="product-sort-row">
             <span className="product-control-label">Ordenar por</span>
             <Dropdown
+              ref={sortFieldDropdownRef}
               inputId="product-sort-field"
               filter
               value={sortField}
@@ -1252,6 +1252,9 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             {MARKET_FIELD_KEYS.map((field) => (
               <Dropdown
                 key={field}
+                ref={(element) => {
+                  setMarketFilterDropdownRef(field, element)
+                }}
                 inputId={`product-market-${field}`}
                 filter
                 showClear
@@ -1367,9 +1370,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               </div>
             )}
             <div
-              className="p-dataview p-component product-dataview"
+              className={classNames(
+                'p-dataview p-component product-dataview product-dataview-sticky',
+                { 'is-stuck': isStickyHeaderStuck },
+              )}
             >
-              <div className="p-dataview-header">
+              <div className="p-dataview-header" ref={stickyHeaderRef}>
                 {header()}
               </div>
               <div className="p-dataview-content">

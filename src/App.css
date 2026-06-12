@@ -589,6 +589,14 @@
   padding: 0;
 }
 
+.product-list-view-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--wfg-text-soft);
+}
+
 .product-carousel-page-controls {
   flex: 1;
   display: flex;
@@ -737,6 +745,29 @@
   background: #f7fbff;
   padding: 8px 10px;
   margin-bottom: 10px;
+}
+
+.product-dataview-sticky .p-dataview-header {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  transition:
+    box-shadow 0.22s ease,
+    border-radius 0.22s ease,
+    width 0.22s ease,
+    padding 0.22s ease,
+    margin 0.22s ease;
+}
+
+.product-dataview-sticky.is-stuck .p-dataview-header {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  border-radius: 0;
+  box-shadow: 0 10px 24px rgba(37, 64, 105, 0.22);
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 0 0 10px 10px;
 }
 
 .product-panel .p-dataview-content {
@@ -914,9 +945,19 @@
   font-size: 0.78rem;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 600px) {
+  .product-dataview-sticky .p-dataview-header {
+    top: 0;
+  }
+
+  .product-dataview-sticky.is-stuck .p-dataview-header {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
   .app-shell {
-    padding: 24px;
+    padding: 12px;
+    padding-bottom: 80px;
   }
 
   .resource-info {
@@ -942,7 +983,7 @@
   }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 600px) {
   .app-topbar {
     flex-wrap: wrap;
   }
