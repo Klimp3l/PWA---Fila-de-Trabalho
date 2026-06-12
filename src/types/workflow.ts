@@ -13,6 +13,16 @@ export interface AtividadeProdutoColumn {
   defaultVisible?: boolean
 }
 
+export interface AtividadeProdutoGroupColumnItem extends AtividadeProdutoColumn {
+  key: string
+}
+
+export interface AtividadeProdutoGroupColumn {
+  label: string
+  icon?: string
+  itens: AtividadeProdutoGroupColumnItem[]
+}
+
 export interface ProdutoAtividade {
   idwffilatrabalho: number
   idwfocorrencia: number
@@ -66,6 +76,7 @@ export interface AtividadeComProdutos {
   wfatividade: string
   atividadeselegiveis: AtividadeElegivelProduto[]
   produtos: ProdutoAtividade[]
+  groupcolumns?: AtividadeProdutoGroupColumn[]
   columns: Record<string, AtividadeProdutoColumn>
 }
 

@@ -13,15 +13,20 @@ import { Message } from 'primereact/message'
 import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect'
 import { Toast } from 'primereact/toast'
 import { classNames } from 'primereact/utils'
+import type { IconProp } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faBroom,
+  faBoxesStacked,
   faBuilding,
+  faCalendarDays,
   faEye,
   faLayerGroup,
   faList,
   faPersonWalking,
+  faScaleBalanced,
   faTableCellsLarge,
+  faTags,
 } from '@fortawesome/free-solid-svg-icons'
 import type {
   AtividadeComProdutos,
@@ -192,6 +197,86 @@ interface ProductListProps {
 }
 
 type SearchFilterValue = string | number | Date | string[] | boolean | null
+type FieldOption = {
+  label: string
+  value: string
+  type: AtividadeProdutoColumn['type']
+  options: string[] | undefined
+  searchable: boolean
+  sortable: boolean
+}
+type ColumnGroupKey = 'produto' | 'mercadologico' | 'datasValores' | 'quantidade' | 'estoque'
+type GroupedFieldOptions = {
+  label: string
+  icon: IconProp
+  items: FieldOption[]
+}
+
+const COLUMN_GROUPS: Array<{ key: ColumnGroupKey; label: string; icon: IconProp }> = [
+  { key: 'produto', label: 'Produto', icon: faTags },
+  { key: 'mercadologico', label: 'Mercadologico', icon: faLayerGroup },
+  { key: 'datasValores', label: 'Datas e Valores', icon: faCalendarDays },
+  { key: 'quantidade', label: 'Quantidade', icon: faScaleBalanced },
+  { key: 'estoque', label: 'Estoque', icon: faBoxesStacked },
+]
+
+const resolveColumnGroup = (field: string): ColumnGroupKey => {
+  const normalizedField = field.toLowerCase()
+
+  if (MARKET_FIELD_KEYS.some((marketField) => marketField === normalizedField)) {
+    return 'mercadologico'
+  }
+
+  if (
+    normalizedField.includes('estoque')
+    || normalizedField.includes('ruptura')
+    || normalizedField.includes('abastecimento')
+  ) {
+    return 'estoque'
+  }
+
+  if (
+    normalizedField.includes('qtd')
+    || normalizedField.includes('quantidade')
+    || normalizedField.includes('unentrada')
+  ) {
+    return 'quantidade'
+  }
+
+  if (
+    normalizedField.includes('data')
+    || normalizedField.includes('hora')
+    || normalizedField.includes('valor')
+    || normalizedField.includes('preco')
+    || normalizedField.includes('dias')
+  ) {
+    return 'datasValores'
+  }
+
+  return 'produto'
+}
+
+const groupFieldOptions = (options: FieldOption[]): GroupedFieldOptions[] => {
+  const optionsByGroup = options.reduce<Record<ColumnGroupKey, FieldOption[]>>((accumulator, option) => {
+    const group = resolveColumnGroup(option.value)
+    accumulator[group].push(option)
+    return accumulator
+  }, {
+    produto: [],
+    mercadologico: [],
+    datasValores: [],
+    quantidade: [],
+    estoque: [],
+  })
+
+  return COLUMN_GROUPS
+    .map((group) => ({
+      label: group.label,
+      icon: group.icon,
+      items: optionsByGroup[group.key],
+    }))
+    .filter((group) => group.items.length > 0)
+}
 
 const normalizeBooleanValue = (value: unknown): boolean | null => {
   if (typeof value === 'boolean') {
@@ -286,7 +371,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   }, [atividade, locallySyncedProductKeys, packageProductKeysSet, readOnlyPackageView])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
   const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
-  const allFieldOptions = useMemo(() => {
+  const allFieldOptions = useMemo<FieldOption[]>(() => {
     return Object.entries(backendColumns)
       .map((field) => ({
         label: field[1].label ?? field[0],
@@ -320,6 +405,18 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const orderableFieldOptions = useMemo(
     () => allFieldOptions.filter((option) => option.sortable),
     [allFieldOptions],
+  )
+  const groupedFieldOptions = useMemo(
+    () => groupFieldOptions(fieldOptions),
+    [fieldOptions],
+  )
+  const groupedSearchableFieldOptions = useMemo(
+    () => groupFieldOptions(searchableFieldOptions),
+    [searchableFieldOptions],
+  )
+  const groupedOrderableFieldOptions = useMemo(
+    () => groupFieldOptions(orderableFieldOptions),
+    [orderableFieldOptions],
   )
   const searchableFieldMap = useMemo(
     () => searchableFieldOptions.reduce<Record<string, typeof searchableFieldOptions[number]>>((accumulator, option) => {
@@ -821,6 +918,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     }),
     [products, selectedActivitiesByProduct, selectedProductKeys],
   )
+  const optionGroupTemplate = useCallback((group: GroupedFieldOptions) => {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+        <FontAwesomeIcon icon={group.icon} />
+        <span>{group.label}</span>
+      </span>
+    )
+  }, [])
 
   const bulkActivityOptions = useMemo(
     () => (
@@ -1126,9 +1231,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               inputId="product-visible-fields"
               value={visibleFields}
               onChange={(event: MultiSelectChangeEvent) => setVisibleFields(event.value as string[])}
-              options={fieldOptions}
+              options={groupedFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               filter
               maxSelectedLabels={2}
               selectedItemsLabel="{0} selecionados"
@@ -1142,9 +1250,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               filter
               value={searchField}
               onChange={(event: DropdownChangeEvent) => setSearchField(event.value as string)}
-              options={searchableFieldOptions}
+              options={groupedSearchableFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               className="product-search-column"
               placeholder="Selecione a coluna"
             />
@@ -1229,9 +1340,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               filter
               value={sortField}
               onChange={(event: DropdownChangeEvent) => setSortField(event.value as string)}
-              options={orderableFieldOptions}
+              options={groupedOrderableFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               className="product-sort-column"
               placeholder="Selecione a coluna"
             />

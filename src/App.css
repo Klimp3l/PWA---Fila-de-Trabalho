@@ -452,6 +452,13 @@
 
 .activity-card.p-card .p-card-body {
   padding: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+
+.activity-card.p-card .p-card-footer {
+  padding: 0;
 }
 
 .activity-card.selected {
@@ -473,7 +480,7 @@
 
 .activity-card-actions {
   display: flex;
-  padding: 12px 12px 0;
+  padding: 0 12px 12px;
 }
 
 .activity-card-actions .app-btn, .product-progress-overview .app-btn {
@@ -884,10 +891,6 @@
   width: 100%;
 }
 
-.product-item-bordered {
-  border-top: 1px solid var(--wfg-line);
-  padding-top: 10px;
-}
 
 .product-list {
   display: grid;

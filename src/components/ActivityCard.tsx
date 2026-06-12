@@ -25,8 +25,22 @@ export function ActivityCard({
   const totalProdutos = atividade.produtos.length
   const produtosRealizados = atividade.produtos.filter((produto) => produto.idwfatividaderealizada !== null).length
 
+  const footer = (
+    <div className="activity-card-actions">
+      <Button
+        type="button"
+        label="Enviar"
+        icon="pi pi-send"
+        className="app-btn primary"
+        onClick={() => onSubmit(atividade)}
+        loading={isSubmitting}
+        disabled={!canSubmit || isSubmitting}
+      />
+    </div>
+  );
+
   return (
-    <Card className={isSelected ? 'activity-card selected' : 'activity-card'}>
+    <Card footer={footer} className={isSelected ? 'activity-card selected' : 'activity-card'}>
       <div className="activity-card-shell">
         <button
           type="button"
@@ -47,17 +61,6 @@ export function ActivityCard({
             <h3><FontAwesomeIcon icon={faPersonWalking} /> {atividade.wfatividade}</h3>
           </div>
         </button>
-        <div className="activity-card-actions">
-          <Button
-            type="button"
-            label="Enviar"
-            icon="pi pi-send"
-            className="app-btn primary"
-            onClick={() => onSubmit(atividade)}
-            loading={isSubmitting}
-            disabled={!canSubmit || isSubmitting}
-          />
-        </div>
       </div>
     </Card>
   )

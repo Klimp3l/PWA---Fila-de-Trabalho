@@ -101,35 +101,49 @@ const toAtividadeElegivelProduto = (value: unknown): AtividadeElegivelProduto | 
   }
 }
 
-const toAtividadeProdutoColumns = (value: unknown): Record<string, AtividadeProdutoColumn> => {
-  if (!isRecord(value)) {
+const toAtividadeProdutoColumnsFromGroups = (value: unknown): Record<string, AtividadeProdutoColumn> => {
+  if (!Array.isArray(value)) {
     return {}
   }
 
-  return Object.entries(value).reduce<Record<string, AtividadeProdutoColumn>>((accumulator, [field, rawConfig]) => {
-    if (!isRecord(rawConfig)) {
-      return accumulator
+  const columns: Record<string, AtividadeProdutoColumn> = {}
+
+  value.forEach((rawGroup) => {
+    if (!isRecord(rawGroup) || !Array.isArray(rawGroup.itens)) {
+      return
     }
 
-    const normalizedType = String(rawConfig.type ?? 'input')
-    const allowedTypes: AtividadeProdutoColumn['type'][] = ['select', 'multipleSelect', 'input', 'inputNumber', 'date', 'boolean']
-    const type = allowedTypes.includes(normalizedType as AtividadeProdutoColumn['type'])
-      ? normalizedType as AtividadeProdutoColumn['type']
-      : 'input'
+    rawGroup.itens.forEach((rawItem) => {
+      if (!isRecord(rawItem)) {
+        return
+      }
 
-    accumulator[field] = {
-      label: String(rawConfig.label ?? field),
-      type,
-      searchable: Boolean(rawConfig.searchable),
-      sortable: Boolean(rawConfig.sortable),
-      icon: typeof rawConfig.icon === 'string' ? rawConfig.icon : undefined,
-      options: Array.isArray(rawConfig.options)
-        ? rawConfig.options.map((option) => String(option))
-        : undefined,
-    }
+      const key = typeof rawItem.key === 'string' ? rawItem.key.trim() : ''
+      if (!key) {
+        return
+      }
 
-    return accumulator
-  }, {})
+      const normalizedType = String(rawItem.type ?? 'input')
+      const allowedTypes: AtividadeProdutoColumn['type'][] = ['select', 'multipleSelect', 'input', 'inputNumber', 'date', 'boolean']
+      const type = allowedTypes.includes(normalizedType as AtividadeProdutoColumn['type'])
+        ? normalizedType as AtividadeProdutoColumn['type']
+        : 'input'
+
+      columns[key] = {
+        label: String(rawItem.label ?? key),
+        type,
+        searchable: Boolean(rawItem.searchable),
+        sortable: Boolean(rawItem.sortable),
+        icon: typeof rawItem.icon === 'string' ? rawItem.icon : undefined,
+        defaultVisible: Boolean(rawItem.defaultVisible),
+        options: Array.isArray(rawItem.options)
+          ? rawItem.options.map((option) => String(option))
+          : undefined,
+      }
+    })
+  })
+
+  return columns
 }
 
 const toProduto = (value: unknown): ProdutoAtividade | null => {
@@ -217,7 +231,8 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
     produtos: produtosRaw
       .map(toProduto)
       .filter((produto): produto is ProdutoAtividade => produto !== null),
-    columns: toAtividadeProdutoColumns(value.columns),
+    groupcolumns: Array.isArray(value.groupcolumns) ? value.groupcolumns : [],
+    columns: toAtividadeProdutoColumnsFromGroups(value.groupcolumns),
   }
 }
 
