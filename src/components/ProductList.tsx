@@ -21,13 +21,16 @@ import {
   faBuilding,
   faCalendarDays,
   faEye,
+  faFileExcel,
   faLayerGroup,
   faList,
   faPersonWalking,
   faScaleBalanced,
+  faShareFromSquare,
   faTableCellsLarge,
   faTags,
 } from '@fortawesome/free-solid-svg-icons'
+import * as XLSX from 'xlsx-js-style'
 import type {
   AtividadeComProdutos,
   AtividadeProdutoColumn,
@@ -78,7 +81,7 @@ interface ProductCardItemProps {
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
-  specialFieldValues: Record<string, string | number | null>
+  specialFieldValues: Record<string, string | number | boolean | null>
   onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
   onToggleSelect: (productKey: string, checked: boolean) => void
   readOnly: boolean
@@ -360,6 +363,56 @@ const formatDateForComparison = (value: unknown) => {
   return ''
 }
 
+const sanitizeFileNameSegment = (value: string) => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+const parseExcelDateValue = (value: unknown): Date | null => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value
+  }
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const parsedDate = new Date(trimmed)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+const resolveExcelCellValue = (fieldConfig: AtividadeProdutoColumn | undefined, rawValue: unknown) => {
+  const configuredType = String(fieldConfig?.type ?? '').toLowerCase()
+
+  if (configuredType === 'inputnumber' || configuredType === 'number' || configuredType === 'currency' || configuredType === 'money') {
+    const numeric = typeof rawValue === 'number' ? rawValue : Number(rawValue)
+    if (Number.isFinite(numeric)) {
+      return numeric
+    }
+    return formatFieldValue(fieldConfig, rawValue)
+  }
+
+  if (configuredType === 'date') {
+    const dateValue = parseExcelDateValue(rawValue)
+    return dateValue ?? formatFieldValue(fieldConfig, rawValue)
+  }
+
+  if (configuredType === 'boolean') {
+    const booleanValue = normalizeBooleanValue(rawValue)
+    return booleanValue ?? formatFieldValue(fieldConfig, rawValue)
+  }
+
+  return formatFieldValue(fieldConfig, rawValue)
+}
+
 export function ProductList({ atividade, readOnlyPackageView = false, packageProductKeys = [] }: ProductListProps) {
   const NONE_ACTIVITY_OPTION_VALUE = '__none__'
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
@@ -367,11 +420,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [showControls, setShowControls] = useState(false)
   const [showMarketFilters, setShowMarketFilters] = useState(false)
   const [showBulkControls, setShowBulkControls] = useState(true)
+  const [showExportControls, setShowExportControls] = useState(false)
   const [searchField, setSearchField] = useState('produto')
   const [searchValue, setSearchValue] = useState<SearchFilterValue>('')
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
-  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | null>>>({})
+  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
     departamento: '',
     setor: '',
@@ -586,7 +640,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
       return accumulator
     }, {})
-    const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | null>>>((accumulator, produto) => {
+    const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | boolean | null>>>((accumulator, produto) => {
       const productKey = getProdutoAtividadeKey(produto)
       accumulator[productKey] = {
         datavalidade: produto.datavalidade ?? '',
@@ -933,6 +987,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   ])
 
   const deferredFilteredAndSortedProducts = useDeferredValue(filteredAndSortedProducts)
+  const exportableFieldKeys = useMemo(
+    () => Array.from(new Set([...ALWAYS_VISIBLE_FIELDS, ...visibleFields])),
+    [visibleFields],
+  )
 
   const productPages = useMemo(() => {
     if (deferredFilteredAndSortedProducts.length === 0) {
@@ -991,6 +1049,141 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       </span>
     )
   }, [])
+
+  const handleExportFilteredProductsToExcel = useCallback(() => {
+    if (filteredAndSortedProducts.length === 0) {
+      toastRef.current?.show({
+        severity: 'warn',
+        summary: 'Nada para exportar',
+        detail: 'Nao ha produtos filtrados para exportar.',
+      })
+      return
+    }
+
+    try {
+      const exportHeaders = exportableFieldKeys.map((field) => fieldConfigByKey[field]?.label ?? field)
+      const exportRows = filteredAndSortedProducts.map((produto) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        const specialValues = specialFieldValuesByProduct[productKey] ?? {}
+        return exportableFieldKeys.map((field) => {
+          const fieldConfig = fieldConfigByKey[field]
+          const hasSpecialValue = Object.prototype.hasOwnProperty.call(specialValues, field)
+          const fieldValue = hasSpecialValue ? specialValues[field] : getProdutoFieldValue(produto, field)
+          return resolveExcelCellValue(fieldConfig, fieldValue)
+        })
+      })
+
+      const worksheet = XLSX.utils.aoa_to_sheet([exportHeaders, ...exportRows], { cellDates: true })
+      const worksheetRange = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1')
+      worksheet['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: 0, c: 0 },
+          e: { r: worksheetRange.e.r, c: worksheetRange.e.c },
+        }),
+      }
+      ;(worksheet as XLSX.WorkSheet & { '!freeze'?: unknown })['!freeze'] = {
+        xSplit: 0,
+        ySplit: 1,
+        topLeftCell: 'A2',
+        activePane: 'bottomLeft',
+        state: 'frozen',
+      }
+      worksheet['!cols'] = exportableFieldKeys.map((field, index) => {
+        if (field === 'produto') {
+          return { wch: 40 }
+        }
+        return {
+          wch: Math.max(14, Math.min(28, exportHeaders[index]?.length + 6 || 16)),
+        }
+      })
+
+      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
+        exportableFieldKeys.forEach((field, columnIndex) => {
+          const fieldType = String(fieldConfigByKey[field]?.type ?? '').toLowerCase()
+          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
+          const cell = worksheet[cellRef] as (XLSX.CellObject & { z?: string }) | undefined
+          if (!cell) {
+            return
+          }
+
+          if (fieldType === 'date' && cell.v instanceof Date) {
+            cell.z = 'dd/mm/yyyy'
+            return
+          }
+
+          if (field === 'idproduto' && typeof cell.v === 'number') {
+            cell.v = Math.trunc(cell.v)
+            cell.z = '#,##0'
+            return
+          }
+
+          if ((fieldType === 'inputnumber' || fieldType === 'number') && typeof cell.v === 'number') {
+            cell.z = '#,##0.00'
+            return
+          }
+
+          if ((fieldType === 'currency' || fieldType === 'money') && typeof cell.v === 'number') {
+            cell.z = 'R$ #,##0.00'
+          }
+        })
+      }
+
+      for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
+        const headerRef = XLSX.utils.encode_cell({ r: 0, c: columnIndex })
+        const headerCell = worksheet[headerRef]
+        if (!headerCell) {
+          continue
+        }
+        ;(headerCell as XLSX.CellObject & { s?: unknown }).s = {
+          fill: {
+            patternType: 'solid',
+            fgColor: { rgb: '1F4E78' },
+          },
+          font: {
+            bold: true,
+            color: { rgb: 'FFFFFF' },
+          },
+          alignment: {
+            horizontal: 'center',
+            vertical: 'center',
+          },
+        }
+      }
+
+      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
+        const stripeColor = rowIndex % 2 === 0 ? 'E8F1FB' : 'FFFFFF'
+        for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
+          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
+          const cell = worksheet[cellRef]
+          if (!cell) {
+            continue
+          }
+          ;(cell as XLSX.CellObject & { s?: unknown }).s = {
+            ...((cell as XLSX.CellObject & { s?: Record<string, unknown> }).s ?? {}),
+            fill: {
+              patternType: 'solid',
+              fgColor: { rgb: stripeColor },
+            },
+          }
+        }
+      }
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos')
+
+      const activityLabel = sanitizeFileNameSegment(atividade?.wfatividade ?? 'atividade')
+      const dateSuffix = new Date().toISOString().replace(/[:.]/g, '-')
+      XLSX.writeFile(workbook, `produtos-${activityLabel || 'atividade'}-${dateSuffix}.xlsx`)
+    } catch (error) {
+      console.error('[ProductList] Falha ao exportar produtos para Excel.', error)
+      toastRef.current?.show({
+        severity: 'error',
+        summary: 'Falha na exportacao',
+        detail: 'Nao foi possivel gerar o arquivo Excel dos produtos filtrados.',
+        life: 7000,
+      })
+    }
+  }, [atividade, exportableFieldKeys, fieldConfigByKey, filteredAndSortedProducts, specialFieldValuesByProduct])
 
   const bulkActivityOptions = useMemo(
     () => (
@@ -1078,7 +1271,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [products, selectedActivitiesByProduct],
   )
 
-  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: string | number | null) => {
+  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: string | number | boolean | null) => {
     setSpecialFieldValuesByProduct((current) => ({
       ...current,
       [productKey]: {
@@ -1183,6 +1376,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 if (next) {
                   setShowMarketFilters(false)
                   setShowBulkControls(false)
+                  setShowExportControls(false)
                 }
 
                 return next
@@ -1203,6 +1397,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 if (next) {
                   setShowControls(false)
                   setShowBulkControls(false)
+                  setShowExportControls(false)
                 }
 
                 return next
@@ -1224,6 +1419,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                   if (next) {
                     setShowControls(false)
                     setShowMarketFilters(false)
+                  setShowExportControls(false)
                   }
 
                   return next
@@ -1231,6 +1427,27 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               }
             />
           )}
+          <Button
+            type="button"
+            icon={<FontAwesomeIcon icon={faShareFromSquare} />}
+            text
+            rounded
+            className={classNames({ 'product-control-toggle-active': showExportControls })}
+            aria-label={showExportControls ? 'Fechar opções de exportação' : 'Abrir opções de exportação'}
+            onClick={() =>
+              setShowExportControls((current) => {
+                const next = !current
+
+                if (next) {
+                  setShowControls(false)
+                  setShowMarketFilters(false)
+                  setShowBulkControls(false)
+                }
+
+                return next
+              })
+            }
+          />
         </div>
         {readOnlyPackageView && (
           <>
@@ -1308,6 +1525,19 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             </div>
           </div>
         )
+      )}
+      {showExportControls && (
+        <div className="product-list-control-panel">
+          <div className="product-bulk-actions-row">
+            <Button
+              type="button"
+              label="Download em Excel"
+              icon={<FontAwesomeIcon icon={faFileExcel} />}
+              onClick={handleExportFilteredProductsToExcel}
+              disabled={filteredAndSortedProducts.length === 0}
+            />
+          </div>
+        </div>
       )}
       {showControls && (
         <div className="product-list-control-panel">
