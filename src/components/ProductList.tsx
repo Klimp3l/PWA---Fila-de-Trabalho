@@ -416,6 +416,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     return packageFilteredProducts.filter((produto) => !locallySyncedProductKeys.has(getProdutoAtividadeKey(produto)))
   }, [atividade, locallySyncedProductKeys, packageProductKeysSet, readOnlyPackageView])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
+  const defaultBulkActivityId = useMemo<number | null>(
+    () => (activityEligibleItems.length === 1 ? activityEligibleItems[0].idwfatividaderealizada : null),
+    [activityEligibleItems],
+  )
   const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
   const allFieldOptions = useMemo<FieldOption[]>(() => {
     return Object.entries(backendColumns)
@@ -595,8 +599,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     setSelectedActivitiesByProduct(initialSelectedActivities)
     setSpecialFieldValuesByProduct(initialSpecialFieldValues)
     setSelectedProductKeys([])
-    setBulkActivityId(null)
-  }, [products])
+    setBulkActivityId(defaultBulkActivityId)
+  }, [defaultBulkActivityId, products])
 
   useEffect(() => {
     const availableValues = new Set(searchableFieldOptions.map((option) => option.value))
@@ -823,8 +827,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
     const productKey = getProdutoAtividadeKey(produto)
-    const selectedValue = selectedActivitiesByProduct[productKey]
-    const value = selectedValue ?? produto.idwfatividaderealizada
+    const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+    const value = hasLocalSelection
+      ? (selectedActivitiesByProduct[productKey] ?? null)
+      : (produto.idwfatividaderealizada ?? null)
     return value !== null
   }, [selectedActivitiesByProduct])
 
@@ -969,7 +975,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       if (!produto) {
         return false
       }
-      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+      const selectedValue = hasLocalSelection
+        ? (selectedActivitiesByProduct[productKey] ?? null)
+        : (produto.idwfatividaderealizada ?? null)
       return selectedValue !== null
     }),
     [products, selectedActivitiesByProduct, selectedProductKeys],
@@ -1060,7 +1069,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const hasEncaminhamentosToSubmit = useMemo(
     () => products.some((produto) => {
       const productKey = getProdutoAtividadeKey(produto)
-      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+      const selectedValue = hasLocalSelection
+        ? (selectedActivitiesByProduct[productKey] ?? null)
+        : (produto.idwfatividaderealizada ?? null)
       return selectedValue !== null
     }),
     [products, selectedActivitiesByProduct],
@@ -1494,7 +1506,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             index={index}
             isSelected={selectedProductKeysSet.has(productKey)}
             isForwarded={isForwardedProduct(produto)}
-            selectedActivity={selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada ?? null}
+            selectedActivity={
+              Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+                ? (selectedActivitiesByProduct[productKey] ?? null)
+                : (produto.idwfatividaderealizada ?? null)
+            }
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
