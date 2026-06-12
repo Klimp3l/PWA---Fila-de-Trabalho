@@ -78,6 +78,8 @@ interface ProductCardItemProps {
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
+  specialFieldValues: Record<string, string | number | null>
+  onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
   onToggleSelect: (productKey: string, checked: boolean) => void
   readOnly: boolean
 }
@@ -92,6 +94,8 @@ const ProductCardItem = memo(function ProductCardItem({
   activityOptions,
   visibleFields,
   fieldConfigByKey,
+  specialFieldValues,
+  onSpecialFieldChange,
   onToggleSelect,
   readOnly,
 }: ProductCardItemProps) {
@@ -178,7 +182,48 @@ const ProductCardItem = memo(function ProductCardItem({
                     {fieldConfigByKey[field]?.icon && <i className={fieldConfigByKey[field].icon} aria-hidden="true" />}
                     {fieldConfigByKey[field]?.label || field}
                     :{' '}
-                    {formatFieldValue(fieldConfigByKey[field], getProdutoFieldValue(produto, field))}
+                    {!(fieldConfigByKey[field]?.inputType) && (
+                      formatFieldValue(fieldConfigByKey[field], getProdutoFieldValue(produto, field))
+                    )}
+                    {fieldConfigByKey[field]?.inputType === 'input' ? (
+                      <InputText
+                        value={String(specialFieldValues[field] ?? getProdutoFieldValue(produto, field) ?? '')}
+                        onChange={(event) => onSpecialFieldChange(productKey, field, event.target.value)}
+                        disabled={readOnly}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'inputNumber' ? (
+                      <InputNumber
+                        value={typeof specialFieldValues[field] === 'number'
+                          ? specialFieldValues[field] as number
+                          : (typeof getProdutoFieldValue(produto, field) === 'number' ? getProdutoFieldValue(produto, field) as number : null)}
+                        onValueChange={(event: InputNumberValueChangeEvent) => onSpecialFieldChange(productKey, field, event.value ?? null)}
+                        disabled={readOnly}
+                        useGrouping={false}
+                        minFractionDigits={2}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'date' ? (
+                      <Calendar
+                        value={(() => {
+                          const rawValue = specialFieldValues[field] ?? getProdutoFieldValue(produto, field)
+                          if (typeof rawValue !== 'string' || !rawValue.trim()) {
+                            return null
+                          }
+                          const date = new Date(rawValue)
+                          return Number.isNaN(date.getTime()) ? null : date
+                        })()}
+                        onChange={(event) => {
+                          const dateValue = event.value instanceof Date && !Number.isNaN(event.value.getTime())
+                            ? `${event.value.getFullYear()}-${`${event.value.getMonth() + 1}`.padStart(2, '0')}-${`${event.value.getDate()}`.padStart(2, '0')}`
+                            : ''
+                          onSpecialFieldChange(productKey, field, dateValue)
+                        }}
+                        dateFormat="yy-mm-dd"
+                        showIcon
+                        disabled={readOnly}
+                      />
+                    ) : null}
                   </p>
                 ))}
               </div>
@@ -326,6 +371,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [searchValue, setSearchValue] = useState<SearchFilterValue>('')
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
+  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | null>>>({})
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
     departamento: '',
     setor: '',
@@ -536,8 +582,18 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
       return accumulator
     }, {})
+    const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | null>>>((accumulator, produto) => {
+      const productKey = getProdutoAtividadeKey(produto)
+      accumulator[productKey] = {
+        datavalidade: produto.datavalidade ?? '',
+        qtdproduzido: produto.qtdproduzido ?? null,
+        qtdestoquecorreta: produto.qtdestoquecorreta ?? null,
+      }
+      return accumulator
+    }, {})
 
     setSelectedActivitiesByProduct(initialSelectedActivities)
+    setSpecialFieldValuesByProduct(initialSpecialFieldValues)
     setSelectedProductKeys([])
     setBulkActivityId(null)
   }, [products])
@@ -701,7 +757,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       searchBooleanDropdownRef.current?.hide()
       sortFieldDropdownRef.current?.hide()
       bulkActivityDropdownRef.current?.hide()
-      ;(searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
+        ; (searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
       MARKET_FIELD_KEYS.forEach((field) => {
         marketFilterDropdownRefs.current[field]?.hide()
       })
@@ -1010,6 +1066,16 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [products, selectedActivitiesByProduct],
   )
 
+  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: string | number | null) => {
+    setSpecialFieldValuesByProduct((current) => ({
+      ...current,
+      [productKey]: {
+        ...(current[productKey] ?? {}),
+        [field]: value,
+      },
+    }))
+  }, [])
+
   const handleSubmitEncaminhamentos = useCallback(async () => {
     if (readOnlyPackageView) {
       return
@@ -1023,7 +1089,16 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       atividade,
       source: 'product-list',
       selectedActivitiesByProduct,
-      products,
+      products: products.map((produto) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        const specialValues = specialFieldValuesByProduct[productKey] ?? {}
+        return {
+          ...produto,
+          datavalidade: typeof specialValues.datavalidade === 'string' ? specialValues.datavalidade : (produto.datavalidade ?? ''),
+          qtdproduzido: typeof specialValues.qtdproduzido === 'number' ? specialValues.qtdproduzido : (produto.qtdproduzido ?? null),
+          qtdestoquecorreta: typeof specialValues.qtdestoquecorreta === 'number' ? specialValues.qtdestoquecorreta : (produto.qtdestoquecorreta ?? null),
+        }
+      }),
     })
 
     if (!queueItem) {
@@ -1076,7 +1151,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     } finally {
       setIsSubmittingEncaminhamentos(false)
     }
-  }, [atividade, enqueueForSync, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct])
+  }, [atividade, enqueueForSync, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct, specialFieldValuesByProduct])
 
   const header = () => (
     <div className="product-list-header">
@@ -1423,6 +1498,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
+            specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
+            onSpecialFieldChange={handleSpecialFieldChange}
             onToggleSelect={toggleProductSelection}
             readOnly={readOnlyPackageView}
           />
@@ -1432,9 +1509,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   ), [
     activityOptions,
     selectedActivitiesByProduct,
+    specialFieldValuesByProduct,
     selectedProductKeysSet,
     isForwardedProduct,
     toggleProductSelection,
+    handleSpecialFieldChange,
     cardVisibleFields,
     fieldConfigByKey,
   ])

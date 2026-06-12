@@ -129,9 +129,12 @@ const toAtividadeProdutoColumnsFromGroups = (value: unknown): Record<string, Ati
         ? normalizedType as AtividadeProdutoColumn['type']
         : 'input'
 
+      const inputType = rawItem.inputType as AtividadeProdutoColumn['inputType']
+
       columns[key] = {
         label: String(rawItem.label ?? key),
         type,
+        inputType,
         searchable: Boolean(rawItem.searchable),
         sortable: Boolean(rawItem.sortable),
         icon: typeof rawItem.icon === 'string' ? rawItem.icon : undefined,
@@ -200,6 +203,9 @@ const toProduto = (value: unknown): ProdutoAtividade | null => {
     qtdestoqueatualcd: toNumberOrNull(value.qtdestoqueatualcd),
     qtdunentrada: toNumberOrNull(value.qtdunentrada),
     recorrencia120dias: toNumberOrNull(value.recorrencia120dias),
+    datavalidade: String(value.datavalidade ?? ''),
+    qtdproduzido: toNumberOrNull(value.qtdproduzido),
+    qtdestoquecorreta: toNumberOrNull(value.qtdestoquecorreta),
     urlImagem: typeof value.urlImagem === 'string' ? value.urlImagem : undefined,
   }
 }

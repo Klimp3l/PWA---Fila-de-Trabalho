@@ -6,6 +6,7 @@ export interface AtividadeElegivelProduto {
 export interface AtividadeProdutoColumn {
   label: string
   type: 'select' | 'multipleSelect' | 'input' | 'inputNumber' | 'date' | 'boolean'
+  inputType?: 'select' | 'multipleSelect' | 'input' | 'inputNumber' | 'date' | 'boolean'
   searchable: boolean
   sortable: boolean
   icon?: string
@@ -63,6 +64,9 @@ export interface ProdutoAtividade {
   qtdestoqueatualcd: number | null
   qtdunentrada: number | null
   recorrencia120dias: number | null
+  datavalidade?: string
+  qtdproduzido?: number | null
+  qtdestoquecorreta?: number | null
   /** Enviado pela API em alguns fluxos; usado para imagem do produto na lista. */
   urlImagem?: string
 }
@@ -115,6 +119,9 @@ export interface EncaminhamentoSyncPayloadItem {
   idwfocorrencia: number
   idwfatividadeencaminhamento: number
   observacao: string
+  qtdproduzido?: number
+  qtdestoquecorreta?: number
+  datavalidade?: string
   idwffilatrabalho: number
 }
 
@@ -135,6 +142,8 @@ export interface ActivitySyncQueueProductSnapshot {
   idwfocorrencia: number
   idwfatividadeencaminhamento: number
   observacao: string
+  observacao2?: string
+  observacao3?: string
 }
 
 export interface ActivitySyncQueueItem {
