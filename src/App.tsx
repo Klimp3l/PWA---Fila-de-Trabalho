@@ -10,6 +10,7 @@ import { ActivityProductsPage } from './pages/ActivityProductsPage'
 import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 import { setOfflineDataUserScope } from './services/offlineDb'
 import { removeOldSuccessfulSyncQueueItems } from './services/activityData'
+import { ActivitySyncQueueProvider } from './context/ActivitySyncQueueContext'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
 const AUTH_STORAGE_KEY = 'odw:is-authenticated'
@@ -95,53 +96,55 @@ function App() {
 
   return (
     <main className="app-shell">
-      <Routes>
-        <Route
-          path="/login"
-          element={(
-            <LoginPage
-              onLogin={handleLogin}
-              isSubmittingLogin={isSubmittingLogin}
-              feedback={authError}
-              isAuthenticated={authStatus === 'authenticated'}
-            />
-          )}
-        />
-        <Route
-          path="/home"
-          element={(
-            <ProtectedRoute
-              isAuthenticated={authStatus === 'authenticated'}
-              onLogoutSuccess={handleLogoutSuccess}
-              userLabel={userLabel}
-            >
-              <HomePage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/home/atividade/:activityId/empresa/:companyId"
-          element={(
-            <ProtectedRoute
-              isAuthenticated={authStatus === 'authenticated'}
-              onLogoutSuccess={handleLogoutSuccess}
-              showHeader={false}
-              userLabel={userLabel}
-            >
-              <ActivityProductsPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="*"
-          element={(
-            <Navigate
-              to={authStatus === 'authenticated' ? '/home' : '/login'}
-              replace
-            />
-          )}
-        />
-      </Routes>
+      <ActivitySyncQueueProvider>
+        <Routes>
+          <Route
+            path="/login"
+            element={(
+              <LoginPage
+                onLogin={handleLogin}
+                isSubmittingLogin={isSubmittingLogin}
+                feedback={authError}
+                isAuthenticated={authStatus === 'authenticated'}
+              />
+            )}
+          />
+          <Route
+            path="/home"
+            element={(
+              <ProtectedRoute
+                isAuthenticated={authStatus === 'authenticated'}
+                onLogoutSuccess={handleLogoutSuccess}
+                userLabel={userLabel}
+              >
+                <HomePage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/home/atividade/:activityId/empresa/:companyId"
+            element={(
+              <ProtectedRoute
+                isAuthenticated={authStatus === 'authenticated'}
+                onLogoutSuccess={handleLogoutSuccess}
+                showHeader={false}
+                userLabel={userLabel}
+              >
+                <ActivityProductsPage />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="*"
+            element={(
+              <Navigate
+                to={authStatus === 'authenticated' ? '/home' : '/login'}
+                replace
+              />
+            )}
+          />
+        </Routes>
+      </ActivitySyncQueueProvider>
     </main>
   )
 }
