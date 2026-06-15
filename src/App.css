@@ -634,6 +634,10 @@
   background: #f9fbff;
 }
 
+.product-list-control-panel > * {
+  min-width: 0;
+}
+
 .product-bulk-selection-row {
   display: flex;
   align-items: center;
@@ -716,6 +720,7 @@
 .product-search-column,
 .product-sort-column {
   width: 100%;
+  min-width: 0;
 }
 
 .product-search-input {
@@ -987,12 +992,207 @@
 }
 
 @media (max-width: 600px) {
+  .app-shell {
+    gap: 8px;
+    padding: 8px;
+    padding-bottom: 70px;
+  }
+
+  .panel {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .panel.p-card .p-card-body {
+    padding: 10px;
+  }
+
+  .app-topbar,
+  .resource-info,
+  .product-panel .p-dataview-header,
+  .product-list-control-panel {
+    padding: 8px;
+  }
+
+  .p-button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.84rem;
+  }
+
+  .p-button-icon {
+    font-size: 0.82rem;
+  }
+
+  .product-panel h2,
+  .product-panel-title {
+    font-size: 1rem;
+    margin-bottom: 4px;
+  }
+
+  .product-panel-subtitle,
+  .product-list-view-mode,
+  .product-control-label,
+  .product-carousel-page-controls > span,
+  .product-card p {
+    font-size: 0.78rem;
+  }
+
+  .product-card h3 {
+    font-size: 0.9rem;
+  }
+
+  .product-panel .p-dataview-header {
+    margin-bottom: 8px;
+  }
+
+  .product-list-header,
+  .product-list-header-top,
+  .product-list-control-panel,
+  .product-search-row,
+  .product-sort-row {
+    gap: 6px;
+  }
+
+  .product-list-control-panel .p-dropdown .p-dropdown-label,
+  .product-list-control-panel .p-multiselect .p-multiselect-label,
+  .product-list-control-panel .p-inputtext,
+  .product-list-control-panel .p-inputnumber-input {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.88rem;
+  }
+
+
+  .product-pages-carousel.p-carousel .p-carousel-prev,
+  .product-pages-carousel.p-carousel .p-carousel-next {
+    margin-top: -45px;
+  }
+
+  .product-panel .p-dropdown {
+    min-height: 2.15rem;
+  }
+
+  .product-panel .p-dropdown .p-dropdown-label {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.86rem;
+  }
+
+  .product-list-control-panel .p-dropdown .p-dropdown-trigger,
+  .product-list-control-panel .p-multiselect .p-multiselect-trigger {
+    width: 2rem;
+  }
+
+  .product-panel .p-dropdown .p-dropdown-trigger {
+    width: 1.9rem;
+  }
+
+  .product-panel .p-dropdown-panel .p-dropdown-items .p-dropdown-item {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.84rem;
+  }
+
+  .product-list-controls .p-button.p-button-icon-only {
+    width: 2.3rem;
+    height: 2.3rem;
+  }
+
+  .product-list-control-panel .p-inputswitch {
+    width: 2.2rem;
+    height: 1.25rem;
+  }
+
+  .product-list-control-panel .p-inputswitch .p-inputswitch-slider::before {
+    width: 0.9rem;
+    height: 0.9rem;
+    margin-top: -0.45rem;
+    left: 0.12rem;
+  }
+
+  .product-list-control-panel .p-inputswitch.p-highlight .p-inputswitch-slider::before,
+  .product-list-control-panel .p-inputswitch.p-inputswitch-checked .p-inputswitch-slider::before {
+    transform: translateX(0.95rem);
+  }
+
+  .product-list-control-panel .p-checkbox {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .product-list-control-panel .p-checkbox .p-checkbox-box {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .product-list-control-panel .p-checkbox .p-checkbox-icon {
+    font-size: 0.6rem;
+  }
+
+  .product-list-control-panel .product-display-config label,
+  .product-list-control-panel .product-bulk-selection-row label {
+    font-size: 0.8rem;
+  }
+
+  .product-list-control-panel .product-bulk-selection-row {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+  }
+
+  .product-list-control-panel .product-bulk-selection-row label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .product-list-control-panel .product-bulk-count {
+    margin-left: auto;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .product-carousel-page-controls {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .product-card.p-card .p-card-body {
+    padding: 8px;
+  }
+
+  .product-card-content,
+  .product-card-main {
+    gap: 8px;
+  }
+
   .app-topbar {
     flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .app-topbar .app-title {
+    flex: 1 0 100%;
+  }
+
+  .app-topbar .app-title h1 {
+    font-size: 1.05rem;
+  }
+
+  .app-topbar .app-title p {
+    font-size: 0.8rem;
+    margin-top: 2px;
+  }
+
+  .app-topbar .status-pill {
+    font-size: 0.76rem;
+    padding: 6px 9px;
+    gap: 6px;
   }
 
   .app-topbar .app-btn.danger {
-    width: 100%;
+    width: auto;
+    margin-left: auto;
+    padding: 0.38rem 0.6rem;
+    font-size: 0.76rem;
   }
 
   .home-page-header {
@@ -1031,7 +1231,34 @@
     grid-template-columns: 1fr;
   }
 
+  .product-list-control-panel .p-dropdown,
+  .product-list-control-panel .p-multiselect,
+  .product-list-control-panel .p-inputtext {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .product-list-control-panel .p-dropdown-label,
+  .product-list-control-panel .p-multiselect-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .product-card-main-list {
-    grid-template-columns: 1fr;
+    grid-template-columns: 72px 1fr;
+    align-items: start;
+  }
+
+  .product-card-content-list .product-image-wrap {
+    width: 72px;
+    max-width: 72px;
+    justify-self: start;
+  }
+
+  .product-card-content-grid .product-image-wrap {
+    width: min(100%, 140px);
+    max-width: 140px;
   }
 }
