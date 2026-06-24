@@ -78,26 +78,17 @@ export default defineConfig(({ mode }) => {
               },
             },
             {
-              urlPattern: ({ url }) =>
-                url.pathname.includes('/bdoserver2.7/odwctrl')
-                && url.searchParams.get('scriptFunction') === 'getAtividades',
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-atividades-cache',
-                networkTimeoutSeconds: 3,
-                cacheableResponse: {
-                  statuses: [200],
-                },
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 2,
-                },
+              urlPattern: ({ url }) => {
+                if (!url.pathname.includes('/bdoserver2.7/odwctrl')) {
+                  return false
+                }
+
+                const action = url.searchParams.get('action') ?? ''
+                const scriptFunction = url.searchParams.get('scriptFunction') ?? ''
+
+                return ['logout', 'getParameters', 'login'].includes(action)
+                  || ['getAtividades', 'update'].includes(scriptFunction)
               },
-            },
-            {
-              urlPattern: ({ url }) =>
-                url.pathname.includes('/bdoserver2.7/odwctrl')
-                && ['logout', 'getParameters', 'login'].includes(url.searchParams.get('action') ?? ''),
               handler: 'NetworkOnly',
             },
             {

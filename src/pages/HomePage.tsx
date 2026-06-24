@@ -9,11 +9,12 @@ import type { ActivitySyncQueueItem, AtividadeComProdutos } from '../types/workf
 import { Card } from 'primereact/card'
 import { Toast } from 'primereact/toast'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getActivityScopeKey, removeActivityProductSelections } from '../services/activityData'
+import { getActivityScopeKey, getProdutoAtividadeKey, removeActivityProductSelections } from '../services/activityData'
 import { removeActivityProductsFromCache } from '../hooks/useAtividadesWithOnlineRefresh'
 import { useActivitySyncQueue } from '../context/ActivitySyncQueueContext'
 import {
   createActivitySyncQueueItem,
+  getPackageSelectedActivitiesByProduct,
   getPackageProductKeys,
   getQueueItemProductKeys,
 } from '../services/activitySyncQueueUtils'
@@ -79,7 +80,7 @@ export function HomePage() {
       return {
         ...atividade,
         produtos: atividade.produtos.filter((produto) => {
-          const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+          const productKey = getProdutoAtividadeKey(produto)
           return !removedProductKeys.has(productKey)
         }),
       }
@@ -237,6 +238,7 @@ export function HomePage() {
                             selectedActivity: item.atividade,
                             readOnlyPackageView: true,
                             packageProductKeys: getPackageProductKeys(item),
+                            packageSelectedActivitiesByProduct: getPackageSelectedActivitiesByProduct(item),
                           },
                         })
                       }}

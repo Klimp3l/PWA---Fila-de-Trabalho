@@ -1,4 +1,5 @@
 import type { AtividadeElegivelProduto, AtividadeProdutoColumn, ProdutoAtividade } from '../../types/workflow'
+import { getProdutoAtividadeKey } from '../../services/activityData'
 import { DEFAULT_PRODUCT_IMAGE } from './config'
 
 type FieldFormatter = (value: unknown) => string
@@ -6,6 +7,41 @@ type LocalFieldType = 'string' | 'number' | 'currency'
 
 export const getProdutoFieldValue = (produto: ProdutoAtividade, field: string): unknown =>
   produto[field as keyof ProdutoAtividade]
+
+export const getEffectiveActivityId = (
+  produto: ProdutoAtividade,
+  selectionsByProduct: Record<string, number | null>,
+): number | null => {
+  const productKey = getProdutoAtividadeKey(produto)
+  const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectionsByProduct, productKey)
+  return hasLocalSelection
+    ? (selectionsByProduct[productKey] ?? null)
+    : (produto.idwfatividaderealizada ?? null)
+}
+
+export const normalizeBooleanValue = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true
+    }
+    if (value === 0) {
+      return false
+    }
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'sim', 's'].includes(normalized)) {
+      return true
+    }
+    if (['false', '0', 'nao', 'não', 'n'].includes(normalized)) {
+      return false
+    }
+  }
+  return null
+}
 
 const formatCurrency = (value: number | null) =>
   typeof value === 'number' && Number.isFinite(value)

@@ -35,6 +35,34 @@ export const getPackageProductKeys = (item: ActivitySyncQueueItem) => {
     .filter((value): value is string => value !== null)
 }
 
+export const getPackageSelectedActivitiesByProduct = (item: ActivitySyncQueueItem) => {
+  const selectedActivitiesByProduct: Record<string, number | null> = {}
+
+  const productsFromSnapshot = item.products ?? []
+  if (productsFromSnapshot.length > 0) {
+    productsFromSnapshot.forEach((product) => {
+      selectedActivitiesByProduct[product.productKey] = product.idwfatividadeencaminhamento
+    })
+    return selectedActivitiesByProduct
+  }
+
+  item.payload.encaminhamentos.forEach((encaminhamento) => {
+    const matchedProduct = item.atividade.produtos.find((produto) => (
+      produto.idwffilatrabalho === encaminhamento.idwffilatrabalho
+      && produto.idwfocorrencia === encaminhamento.idwfocorrencia
+    ))
+
+    if (!matchedProduct) {
+      return
+    }
+
+    const productKey = getProdutoAtividadeKey(matchedProduct)
+    selectedActivitiesByProduct[productKey] = encaminhamento.idwfatividadeencaminhamento
+  })
+
+  return selectedActivitiesByProduct
+}
+
 export const createActivitySyncQueueItem = ({
   atividade,
   source,
@@ -80,8 +108,9 @@ export const createActivitySyncQueueItem = ({
         idwffilatrabalho: produto.idwffilatrabalho,
         idwfatividadeencaminhamento: selectedValue,
         observacao: produto.observacao ?? '',
-        observacao2: produto.datavalidade ?? '',
-        observacao3: produto.qtdproduzido != null ? String(produto.qtdproduzido) : '',
+        qtdproduzido: produto.qtdproduzido ?? null,
+        qtdestoquecorreta: produto.qtdestoquecorreta ?? null,
+        datavalidade: produto.datavalidade ?? '',
       })),
     },
     productCount: selectedProducts.length,
@@ -94,11 +123,13 @@ export const createActivitySyncQueueItem = ({
       idwfocorrencia: produto.idwfocorrencia,
       idwfatividadeencaminhamento: selectedValue,
       observacao: produto.observacao ?? '',
-      observacao2: produto.datavalidade ?? '',
-      observacao3: produto.qtdproduzido != null ? String(produto.qtdproduzido) : '',
+      qtdproduzido: produto.qtdproduzido ?? null,
+      qtdestoquecorreta: produto.qtdestoquecorreta ?? null,
+      datavalidade: produto.datavalidade ?? '',
     })),
     status: 'pending',
     errorMessage: null,
+    retryCount: 0,
     createdAt: now,
     updatedAt: now,
   }

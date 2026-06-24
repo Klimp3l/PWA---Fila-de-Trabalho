@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { loadAtividadesWithOfflineFallback } from '../services/activityData'
+import { getProdutoAtividadeKey, loadAtividadesWithOfflineFallback } from '../services/activityData'
 import type { AtividadeComProdutos } from '../types/workflow'
 
 let atividadesCache: AtividadeComProdutos[] | null = null
@@ -32,7 +32,7 @@ export const syncActivitySelectionsInCache = (
     return {
       ...atividade,
       produtos: atividade.produtos.map((produto) => {
-        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+        const productKey = getProdutoAtividadeKey(produto)
 
         if (!(productKey in selectionsByProduct)) {
           return produto
@@ -79,7 +79,7 @@ export const removeActivityProductsFromCache = (
     return {
       ...atividade,
       produtos: atividade.produtos.filter((produto) => {
-        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+        const productKey = getProdutoAtividadeKey(produto)
         return !productKeys.has(productKey)
       }),
     }

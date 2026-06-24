@@ -3,47 +3,40 @@ import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
 import { Carousel } from 'primereact/carousel'
 import { Calendar } from 'primereact/calendar'
-import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
-import { DataViewLayoutOptions } from 'primereact/dataview'
 import { Dropdown, type DropdownChangeEvent } from 'primereact/dropdown'
 import { InputNumber, type InputNumberValueChangeEvent } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
-import { InputSwitch, type InputSwitchChangeEvent } from 'primereact/inputswitch'
 import { Message } from 'primereact/message'
-import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect'
+import { MultiSelect } from 'primereact/multiselect'
 import { Toast } from 'primereact/toast'
 import { classNames } from 'primereact/utils'
 import type { IconProp } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
-  faBroom,
   faBoxesStacked,
   faBuilding,
   faCalendarDays,
-  faEye,
-  faFileExcel,
   faLayerGroup,
-  faList,
   faPersonWalking,
   faScaleBalanced,
-  faShareFromSquare,
-  faTableCellsLarge,
   faTags,
 } from '@fortawesome/free-solid-svg-icons'
-import * as XLSX from 'xlsx-js-style'
 import type {
   AtividadeComProdutos,
   AtividadeProdutoColumn,
   ProdutoAtividade,
 } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
+import { exportProductsToExcel } from '../services/exportProductsToExcel'
+import { useStickyHeader } from '../hooks/useStickyHeader'
+import {
+  useActivityProductListPreferences,
+  useActivitySelectionsPersistence,
+} from '../hooks/useActivityProductPersistence'
 import {
   getActivityScopeKey,
   getProdutoAtividadeKey,
-  loadActivityProductListPreferences,
   removeActivityProductSelections,
-  saveActivityProductListPreferences,
-  saveActivityProductSelections,
 } from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
@@ -51,7 +44,6 @@ import {
   DEFAULT_ROWS_PER_PAGE,
   ALWAYS_VISIBLE_FIELDS,
   MARKET_FIELD_INDEX,
-  MARKET_FIELD_LABELS,
   MARKET_FIELD_KEYS,
   type MarketFieldKey,
 } from './product-list/config'
@@ -59,14 +51,21 @@ import {
   compareFieldValues,
   formatFieldValue,
   getAtividadeLabel,
+  getEffectiveActivityId,
   getProdutoFieldValue,
+  normalizeBooleanValue,
   resolveProductImage,
-  toDropdownActivityId,
 } from './product-list/utils'
-import type { ActivityProductListPreferences } from '../types/workflow'
+import {
+  NONE_ACTIVITY_OPTION_VALUE,
+  type ColumnGroupKey,
+  type FieldOption,
+  type GroupedFieldOptions,
+  type SearchFilterValue,
+} from './product-list/types'
+import { ProductListHeader } from './product-list/ProductListHeader'
 import {
   removeActivityProductsFromCache,
-  syncActivitySelectionsInCache,
 } from '../hooks/useAtividadesWithOnlineRefresh'
 import { useActivitySyncQueue } from '../context/ActivitySyncQueueContext'
 import { createActivitySyncQueueItem, getQueueItemProductKeys } from '../services/activitySyncQueueUtils'
@@ -80,6 +79,7 @@ interface ProductCardItemProps {
   selectedActivity: number | null
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
+  showProductImage: boolean
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
   specialFieldValues: Record<string, string | number | boolean | null>
   onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
@@ -96,6 +96,7 @@ const ProductCardItem = memo(function ProductCardItem({
   selectedActivity,
   activityOptions,
   visibleFields,
+  showProductImage,
   fieldConfigByKey,
   specialFieldValues,
   onSpecialFieldChange,
@@ -103,6 +104,9 @@ const ProductCardItem = memo(function ProductCardItem({
   readOnly,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
+  const selectedActivityLabel = selectedActivity === null
+    ? '-'
+    : (activityOptions.find((option) => option.value === selectedActivity)?.label ?? `Atividade ${selectedActivity}`)
 
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     if (readOnly) {
@@ -139,39 +143,47 @@ const ProductCardItem = memo(function ProductCardItem({
             'product-card-content-grid': layout === 'grid',
           })}
         >
-          {layout === 'list' && selectedActivity && (
+          {layout === 'list' && selectedActivity !== null && (
             <p>
               <FontAwesomeIcon icon={faPersonWalking} />
-              {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
+              {selectedActivityLabel}
             </p>
           )}
           <div
             className={classNames('product-card-main', {
               'product-card-main-list': layout === 'list',
               'product-card-main-grid': layout === 'grid',
+              'product-card-main-list-no-image': layout === 'list' && !showProductImage,
+              'product-card-main-grid-no-image': layout === 'grid' && !showProductImage,
             })}
           >
-            {layout === 'grid' && selectedActivity && (
+            {layout === 'grid' && selectedActivity !== null && (
               <p>
                 <FontAwesomeIcon icon={faPersonWalking} />
-                {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
+                {selectedActivityLabel}
               </p>
             )}
-            <div className="product-image-wrap">
-              <img
-                className="product-image"
-                src={resolveProductImage(produto)}
-                alt={produto.produto}
-                loading="lazy"
-                onError={(event) => {
-                  if (event.currentTarget.src.endsWith('/default.png')) {
-                    return
-                  }
-                  event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
-                }}
-              />
-            </div>
-            <div className="product-details">
+            {showProductImage && (
+              <div className="product-image-wrap">
+                <img
+                  className="product-image"
+                  src={resolveProductImage(produto)}
+                  alt={produto.produto}
+                  loading="lazy"
+                  onError={(event) => {
+                    if (event.currentTarget.src.endsWith('/default.png')) {
+                      return
+                    }
+                    event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
+                  }}
+                />
+              </div>
+            )}
+            <div
+              className={classNames('product-details', {
+                'product-details-no-image': !showProductImage,
+              })}
+            >
               <div className="product-card-head">
                 <h3>{produto.produto}</h3>
               </div>
@@ -242,23 +254,10 @@ interface ProductListProps {
   atividade: AtividadeComProdutos | null
   readOnlyPackageView?: boolean
   packageProductKeys?: string[]
+  packageSelectedActivitiesByProduct?: Record<string, number | null>
 }
 
-type SearchFilterValue = string | number | Date | string[] | boolean | null
-type FieldOption = {
-  label: string
-  value: string
-  type: AtividadeProdutoColumn['type']
-  options: string[] | undefined
-  searchable: boolean
-  sortable: boolean
-}
-type ColumnGroupKey = 'produto' | 'mercadologico' | 'datasValores' | 'quantidade' | 'estoque'
-type GroupedFieldOptions = {
-  label: string
-  icon: IconProp
-  items: FieldOption[]
-}
+const PRODUCT_IMAGE_FIELD_KEY = 'urlImagem'
 
 const COLUMN_GROUPS: Array<{ key: ColumnGroupKey; label: string; icon: IconProp }> = [
   { key: 'produto', label: 'Produto', icon: faTags },
@@ -326,30 +325,6 @@ const groupFieldOptions = (options: FieldOption[]): GroupedFieldOptions[] => {
     .filter((group) => group.items.length > 0)
 }
 
-const normalizeBooleanValue = (value: unknown): boolean | null => {
-  if (typeof value === 'boolean') {
-    return value
-  }
-  if (typeof value === 'number') {
-    if (value === 1) {
-      return true
-    }
-    if (value === 0) {
-      return false
-    }
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    if (['true', '1', 'sim', 's'].includes(normalized)) {
-      return true
-    }
-    if (['false', '0', 'nao', 'não', 'n'].includes(normalized)) {
-      return false
-    }
-  }
-  return null
-}
-
 const formatDateForComparison = (value: unknown) => {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const year = value.getFullYear()
@@ -363,58 +338,12 @@ const formatDateForComparison = (value: unknown) => {
   return ''
 }
 
-const sanitizeFileNameSegment = (value: string) => {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9-_]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
-const parseExcelDateValue = (value: unknown): Date | null => {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value
-  }
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  const parsedDate = new Date(trimmed)
-  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
-}
-
-const resolveExcelCellValue = (fieldConfig: AtividadeProdutoColumn | undefined, rawValue: unknown) => {
-  const configuredType = String(fieldConfig?.type ?? '').toLowerCase()
-
-  if (configuredType === 'inputnumber' || configuredType === 'number' || configuredType === 'currency' || configuredType === 'money') {
-    const numeric = typeof rawValue === 'number' ? rawValue : Number(rawValue)
-    if (Number.isFinite(numeric)) {
-      return numeric
-    }
-    return formatFieldValue(fieldConfig, rawValue)
-  }
-
-  if (configuredType === 'date') {
-    const dateValue = parseExcelDateValue(rawValue)
-    return dateValue ?? formatFieldValue(fieldConfig, rawValue)
-  }
-
-  if (configuredType === 'boolean') {
-    const booleanValue = normalizeBooleanValue(rawValue)
-    return booleanValue ?? formatFieldValue(fieldConfig, rawValue)
-  }
-
-  return formatFieldValue(fieldConfig, rawValue)
-}
-
-export function ProductList({ atividade, readOnlyPackageView = false, packageProductKeys = [] }: ProductListProps) {
-  const NONE_ACTIVITY_OPTION_VALUE = '__none__'
+export function ProductList({
+  atividade,
+  readOnlyPackageView = false,
+  packageProductKeys = [],
+  packageSelectedActivitiesByProduct = {},
+}: ProductListProps) {
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
   const [visibleFields, setVisibleFields] = useState<string[]>([])
   const [showControls, setShowControls] = useState(false)
@@ -441,11 +370,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
   const [locallySyncedProductKeys, setLocallySyncedProductKeys] = useState<Set<string>>(new Set())
   const { enqueueForSync } = useActivitySyncQueue()
-  const hasLoadedPreferencesRef = useRef<string | null>(null)
-  const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toastRef = useRef<Toast | null>(null)
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null)
-  const [isStickyHeaderStuck, setIsStickyHeaderStuck] = useState(false)
   const bulkActivityDropdownRef = useRef<Dropdown>(null)
   const visibleFieldsMultiSelectRef = useRef<MultiSelect>(null)
   const searchFieldDropdownRef = useRef<Dropdown>(null)
@@ -476,15 +402,27 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   )
   const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
   const allFieldOptions = useMemo<FieldOption[]>(() => {
-    return Object.entries(backendColumns)
-      .map((field) => ({
-        label: field[1].label ?? field[0],
-        value: field[0],
-        type: field[1].type,
-        options: field[1].options,
-        searchable: field[1].searchable,
-        sortable: field[1].sortable,
+    const backendOptions = Object.entries(backendColumns)
+      .map(([key, config]) => ({
+        label: config.label ?? key,
+        value: key,
+        type: config.type,
+        options: config.options,
+        searchable: config.searchable,
+        sortable: config.sortable,
       }))
+
+    const hasImageField = backendOptions.some((option) => option.value === PRODUCT_IMAGE_FIELD_KEY)
+    const imageFieldOption: FieldOption = {
+      label: 'Imagem do produto',
+      value: PRODUCT_IMAGE_FIELD_KEY,
+      type: 'input',
+      options: undefined,
+      searchable: false,
+      sortable: false,
+    }
+
+    return (hasImageField ? backendOptions : [...backendOptions, imageFieldOption])
       .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
   }, [backendColumns])
   const fieldConfigByKey = useMemo(
@@ -492,7 +430,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [backendColumns],
   )
   const cardVisibleFields = useMemo(
-    () => visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
+    () => visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field) && field !== PRODUCT_IMAGE_FIELD_KEY),
+    [visibleFields],
+  )
+  const showProductImage = useMemo(
+    () => visibleFields.includes(PRODUCT_IMAGE_FIELD_KEY),
     [visibleFields],
   )
 
@@ -619,6 +561,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
   useEffect(() => {
     const availableValues = new Set(fieldOptions.map((option) => option.value))
+    const defaultVisibleFieldOptions = fieldOptions.filter((option) => option.value !== PRODUCT_IMAGE_FIELD_KEY)
 
     setVisibleFields((current) => {
       const filteredCurrent = current.filter((field) => availableValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field))
@@ -627,7 +570,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         return filteredCurrent
       }
 
-      return fieldOptions.slice(0, 2).map((field) => field.value)
+      return defaultVisibleFieldOptions.slice(0, 2).map((field) => field.value)
     })
   }, [fieldOptions])
 
@@ -637,7 +580,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
   useEffect(() => {
     const initialSelectedActivities = products.reduce<Record<string, number | null>>((accumulator, produto) => {
-      accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
+      const productKey = getProdutoAtividadeKey(produto)
+      const hasPackageSelection = Object.prototype.hasOwnProperty.call(packageSelectedActivitiesByProduct, productKey)
+      accumulator[productKey] = hasPackageSelection
+        ? (packageSelectedActivitiesByProduct[productKey] ?? null)
+        : produto.idwfatividaderealizada
       return accumulator
     }, {})
     const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | boolean | null>>>((accumulator, produto) => {
@@ -654,7 +601,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     setSpecialFieldValuesByProduct(initialSpecialFieldValues)
     setSelectedProductKeys([])
     setBulkActivityId(defaultBulkActivityId)
-  }, [defaultBulkActivityId, products])
+  }, [defaultBulkActivityId, packageSelectedActivitiesByProduct, products])
 
   useEffect(() => {
     const availableValues = new Set(searchableFieldOptions.map((option) => option.value))
@@ -720,172 +667,46 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     setSortField((current) => (availableValues.has(current) ? current : defaultField))
   }, [orderableFieldOptions])
 
-  useEffect(() => {
-    if (!atividade) {
-      hasLoadedPreferencesRef.current = null
-      return
-    }
-
-    const currentActivityScopeKey = getActivityScopeKey(atividade)
-    hasLoadedPreferencesRef.current = null
-
-    let isCancelled = false
-
-    void loadActivityProductListPreferences(currentActivityScopeKey)
-      .then((preferences) => {
-        if (isCancelled || hasLoadedPreferencesRef.current !== null) {
-          return
-        }
-
-        const availableFieldValues = new Set(fieldOptions.map((option) => option.value))
-        const availableOrderableFieldValues = new Set(orderableFieldOptions.map((option) => option.value))
-        const defaultSortField = availableOrderableFieldValues.has('produto')
-          ? 'produto'
-          : orderableFieldOptions[0]?.value ?? ''
-
-        if (preferences) {
-          setLayout(preferences.layout)
-          setVisibleFields(
-            preferences.visibleFields.filter(
-              (field) => availableFieldValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field),
-            ),
-          )
-          setSortDirection(preferences.sortDirection)
-          setSortField(
-            availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
-          )
-          setShowForwardedProducts(preferences.showForwardedProducts ?? true)
-        } else {
-          setLayout('grid')
-          setSortDirection(1)
-          setSortField(defaultSortField)
-          setShowForwardedProducts(true)
-        }
-
-        hasLoadedPreferencesRef.current = currentActivityScopeKey
-      })
-      .catch((error) => {
-        console.warn('[ProductList] Falha ao carregar preferências de visualização da atividade.', error)
-        if (!isCancelled && hasLoadedPreferencesRef.current === null) {
-          hasLoadedPreferencesRef.current = currentActivityScopeKey
-        }
-      })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [atividade, fieldOptions, orderableFieldOptions])
-
-  useEffect(() => {
-    if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
-      return
-    }
-
-    const preferences: ActivityProductListPreferences = {
-      layout,
-      visibleFields: visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
-      sortField,
-      sortDirection,
-      showForwardedProducts,
-    }
-
-    void saveActivityProductListPreferences(getActivityScopeKey(atividade), preferences).catch((error) => {
-      console.warn('[ProductList] Falha ao persistir preferências de visualização da atividade.', error)
-    })
-  }, [atividade, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
+  useActivityProductListPreferences({
+    atividade,
+    fieldOptions,
+    orderableFieldOptions,
+    layout,
+    visibleFields,
+    sortField,
+    sortDirection,
+    showForwardedProducts,
+    setLayout,
+    setVisibleFields,
+    setSortField,
+    setSortDirection,
+    setShowForwardedProducts,
+  })
 
   const setMarketFilterDropdownRef = useCallback((field: MarketFieldKey, element: Dropdown | null) => {
     marketFilterDropdownRefs.current[field] = element
   }, [])
 
-  useEffect(() => {
-    const stickyHeaderElement = stickyHeaderRef.current
-
-    if (!stickyHeaderElement) {
-      return
-    }
-
-    let animationFrameId: number | null = null
-
-    const closeFloatingPanels = () => {
-      visibleFieldsMultiSelectRef.current?.hide()
-      searchFieldDropdownRef.current?.hide()
-      searchSelectDropdownRef.current?.hide()
-      searchMultipleSelectRef.current?.hide()
-      searchBooleanDropdownRef.current?.hide()
-      sortFieldDropdownRef.current?.hide()
-      bulkActivityDropdownRef.current?.hide()
-        ; (searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
-      MARKET_FIELD_KEYS.forEach((field) => {
-        marketFilterDropdownRefs.current[field]?.hide()
-      })
-    }
-
-    const updateStickyState = () => {
-      const { top } = stickyHeaderElement.getBoundingClientRect()
-      setIsStickyHeaderStuck(top <= 0)
-    }
-
-    const handleScroll = () => {
-      if (animationFrameId !== null) {
-        return
-      }
-
-      animationFrameId = window.requestAnimationFrame(() => {
-        animationFrameId = null
-        const { top } = stickyHeaderElement.getBoundingClientRect()
-        if (top <= 0) {
-          closeFloatingPanels()
-        }
-        updateStickyState()
-      })
-    }
-
-    updateStickyState()
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    window.addEventListener('resize', handleScroll)
-
-    return () => {
-      if (animationFrameId !== null) {
-        window.cancelAnimationFrame(animationFrameId)
-      }
-      window.removeEventListener('scroll', handleScroll)
-      window.removeEventListener('resize', handleScroll)
-    }
+  const closeFloatingPanels = useCallback(() => {
+    visibleFieldsMultiSelectRef.current?.hide()
+    searchFieldDropdownRef.current?.hide()
+    searchSelectDropdownRef.current?.hide()
+    searchMultipleSelectRef.current?.hide()
+    searchBooleanDropdownRef.current?.hide()
+    sortFieldDropdownRef.current?.hide()
+    bulkActivityDropdownRef.current?.hide()
+      ; (searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
+    MARKET_FIELD_KEYS.forEach((field) => {
+      marketFilterDropdownRefs.current[field]?.hide()
+    })
   }, [])
 
-  useEffect(() => {
-    if (!atividade) {
-      return
-    }
+  const isStickyHeaderStuck = useStickyHeader(stickyHeaderRef, closeFloatingPanels)
 
-    if (saveSelectionsTimeoutRef.current) {
-      clearTimeout(saveSelectionsTimeoutRef.current)
-    }
-
-    const activityScopeKey = getActivityScopeKey(atividade)
-    saveSelectionsTimeoutRef.current = setTimeout(() => {
-      void saveActivityProductSelections(activityScopeKey, selectedActivitiesByProduct).catch((error) => {
-        console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
-      })
-      syncActivitySelectionsInCache(activityScopeKey, selectedActivitiesByProduct)
-    }, 200)
-
-    return () => {
-      if (saveSelectionsTimeoutRef.current) {
-        clearTimeout(saveSelectionsTimeoutRef.current)
-        saveSelectionsTimeoutRef.current = null
-      }
-    }
-  }, [atividade, selectedActivitiesByProduct])
+  useActivitySelectionsPersistence(atividade, selectedActivitiesByProduct)
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
-    const productKey = getProdutoAtividadeKey(produto)
-    const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
-    const value = hasLocalSelection
-      ? (selectedActivitiesByProduct[productKey] ?? null)
-      : (produto.idwfatividaderealizada ?? null)
-    return value !== null
+    return getEffectiveActivityId(produto, selectedActivitiesByProduct) !== null
   }, [selectedActivitiesByProduct])
 
   const forwardedProductsCount = useMemo(
@@ -1033,11 +854,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       if (!produto) {
         return false
       }
-      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
-      const selectedValue = hasLocalSelection
-        ? (selectedActivitiesByProduct[productKey] ?? null)
-        : (produto.idwfatividaderealizada ?? null)
-      return selectedValue !== null
+      return getEffectiveActivityId(produto, selectedActivitiesByProduct) !== null
     }),
     [products, selectedActivitiesByProduct, selectedProductKeys],
   )
@@ -1061,119 +878,13 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     }
 
     try {
-      const exportHeaders = exportableFieldKeys.map((field) => fieldConfigByKey[field]?.label ?? field)
-      const exportRows = filteredAndSortedProducts.map((produto) => {
-        const productKey = getProdutoAtividadeKey(produto)
-        const specialValues = specialFieldValuesByProduct[productKey] ?? {}
-        return exportableFieldKeys.map((field) => {
-          const fieldConfig = fieldConfigByKey[field]
-          const hasSpecialValue = Object.prototype.hasOwnProperty.call(specialValues, field)
-          const fieldValue = hasSpecialValue ? specialValues[field] : getProdutoFieldValue(produto, field)
-          return resolveExcelCellValue(fieldConfig, fieldValue)
-        })
+      exportProductsToExcel({
+        products: filteredAndSortedProducts,
+        exportableFieldKeys,
+        fieldConfigByKey,
+        specialFieldValuesByProduct,
+        activityLabel: atividade?.wfatividade ?? 'atividade',
       })
-
-      const worksheet = XLSX.utils.aoa_to_sheet([exportHeaders, ...exportRows], { cellDates: true })
-      const worksheetRange = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1')
-      worksheet['!autofilter'] = {
-        ref: XLSX.utils.encode_range({
-          s: { r: 0, c: 0 },
-          e: { r: worksheetRange.e.r, c: worksheetRange.e.c },
-        }),
-      }
-      ;(worksheet as XLSX.WorkSheet & { '!freeze'?: unknown })['!freeze'] = {
-        xSplit: 0,
-        ySplit: 1,
-        topLeftCell: 'A2',
-        activePane: 'bottomLeft',
-        state: 'frozen',
-      }
-      worksheet['!cols'] = exportableFieldKeys.map((field, index) => {
-        if (field === 'produto') {
-          return { wch: 40 }
-        }
-        return {
-          wch: Math.max(14, Math.min(28, exportHeaders[index]?.length + 6 || 16)),
-        }
-      })
-
-      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
-        exportableFieldKeys.forEach((field, columnIndex) => {
-          const fieldType = String(fieldConfigByKey[field]?.type ?? '').toLowerCase()
-          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
-          const cell = worksheet[cellRef] as (XLSX.CellObject & { z?: string }) | undefined
-          if (!cell) {
-            return
-          }
-
-          if (fieldType === 'date' && cell.v instanceof Date) {
-            cell.z = 'dd/mm/yyyy'
-            return
-          }
-
-          if (field === 'idproduto' && typeof cell.v === 'number') {
-            cell.v = Math.trunc(cell.v)
-            cell.z = '#,##0'
-            return
-          }
-
-          if ((fieldType === 'inputnumber' || fieldType === 'number') && typeof cell.v === 'number') {
-            cell.z = '#,##0.00'
-            return
-          }
-
-          if ((fieldType === 'currency' || fieldType === 'money') && typeof cell.v === 'number') {
-            cell.z = 'R$ #,##0.00'
-          }
-        })
-      }
-
-      for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
-        const headerRef = XLSX.utils.encode_cell({ r: 0, c: columnIndex })
-        const headerCell = worksheet[headerRef]
-        if (!headerCell) {
-          continue
-        }
-        ;(headerCell as XLSX.CellObject & { s?: unknown }).s = {
-          fill: {
-            patternType: 'solid',
-            fgColor: { rgb: '1F4E78' },
-          },
-          font: {
-            bold: true,
-            color: { rgb: 'FFFFFF' },
-          },
-          alignment: {
-            horizontal: 'center',
-            vertical: 'center',
-          },
-        }
-      }
-
-      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
-        const stripeColor = rowIndex % 2 === 0 ? 'E8F1FB' : 'FFFFFF'
-        for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
-          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
-          const cell = worksheet[cellRef]
-          if (!cell) {
-            continue
-          }
-          ;(cell as XLSX.CellObject & { s?: unknown }).s = {
-            ...((cell as XLSX.CellObject & { s?: Record<string, unknown> }).s ?? {}),
-            fill: {
-              patternType: 'solid',
-              fgColor: { rgb: stripeColor },
-            },
-          }
-        }
-      }
-
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos')
-
-      const activityLabel = sanitizeFileNameSegment(atividade?.wfatividade ?? 'atividade')
-      const dateSuffix = new Date().toISOString().replace(/[:.]/g, '-')
-      XLSX.writeFile(workbook, `produtos-${activityLabel || 'atividade'}-${dateSuffix}.xlsx`)
     } catch (error) {
       console.error('[ProductList] Falha ao exportar produtos para Excel.', error)
       toastRef.current?.show({
@@ -1252,22 +963,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     })
 
     setSelectedProductKeys((current) => current.filter((productKey) => !selectedKeys.includes(productKey)))
-
-    // setShowBulkControls(false)
-    // setTimeout(() => {
-    //   setShowBulkControls(true)
-    // }, 1)
   }
 
   const hasEncaminhamentosToSubmit = useMemo(
-    () => products.some((produto) => {
-      const productKey = getProdutoAtividadeKey(produto)
-      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
-      const selectedValue = hasLocalSelection
-        ? (selectedActivitiesByProduct[productKey] ?? null)
-        : (produto.idwfatividaderealizada ?? null)
-      return selectedValue !== null
-    }),
+    () => products.some((produto) => getEffectiveActivityId(produto, selectedActivitiesByProduct) !== null),
     [products, selectedActivitiesByProduct],
   )
 
@@ -1358,365 +1057,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     }
   }, [atividade, enqueueForSync, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct, specialFieldValuesByProduct])
 
-  const header = () => (
-    <div className="product-list-header">
-      <div className="product-list-header-top">
-        <div className="product-list-controls">
-          <Button
-            type="button"
-            icon="pi pi-sliders-h"
-            text
-            rounded
-            className={classNames({ 'product-control-toggle-active': showControls })}
-            aria-label={showControls ? 'Fechar controles' : 'Abrir controles'}
-            onClick={() =>
-              setShowControls((current) => {
-                const next = !current
-
-                if (next) {
-                  setShowMarketFilters(false)
-                  setShowBulkControls(false)
-                  setShowExportControls(false)
-                }
-
-                return next
-              })
-            }
-          />
-          <Button
-            type="button"
-            icon={<FontAwesomeIcon icon={faLayerGroup} />}
-            text
-            rounded
-            className={classNames({ 'product-control-toggle-active': showMarketFilters })}
-            aria-label={showMarketFilters ? 'Fechar filtros mercadológicos' : 'Abrir filtros mercadológicos'}
-            onClick={() =>
-              setShowMarketFilters((current) => {
-                const next = !current
-
-                if (next) {
-                  setShowControls(false)
-                  setShowBulkControls(false)
-                  setShowExportControls(false)
-                }
-
-                return next
-              })
-            }
-          />
-          {!readOnlyPackageView && (
-            <Button
-              type="button"
-              icon={<FontAwesomeIcon icon={faPersonWalking} />}
-              text
-              rounded
-              className={classNames({ 'product-control-toggle-active': showBulkControls })}
-              aria-label={showBulkControls ? 'Fechar ações em lote' : 'Abrir ações em lote'}
-              onClick={() =>
-                setShowBulkControls((current) => {
-                  const next = !current
-
-                  if (next) {
-                    setShowControls(false)
-                    setShowMarketFilters(false)
-                  setShowExportControls(false)
-                  }
-
-                  return next
-                })
-              }
-            />
-          )}
-          <Button
-            type="button"
-            icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-            text
-            rounded
-            className={classNames({ 'product-control-toggle-active': showExportControls })}
-            aria-label={showExportControls ? 'Fechar opções de exportação' : 'Abrir opções de exportação'}
-            onClick={() =>
-              setShowExportControls((current) => {
-                const next = !current
-
-                if (next) {
-                  setShowControls(false)
-                  setShowMarketFilters(false)
-                  setShowBulkControls(false)
-                }
-
-                return next
-              })
-            }
-          />
-        </div>
-        {readOnlyPackageView && (
-          <>
-            <span className="product-list-view-mode"><FontAwesomeIcon icon={faEye} /> Modo visualização</span>
-          </>
-        )}
-        <DataViewLayoutOptions
-          layout={layout}
-          onChange={(event) => setLayout(event.value as 'list' | 'grid')}
-          listIcon={<FontAwesomeIcon icon={faList} />}
-          gridIcon={<FontAwesomeIcon icon={faTableCellsLarge} />}
-        />
-      </div>
-      {showBulkControls && (
-        !readOnlyPackageView && (
-          <div className="product-list-control-panel">
-
-            <div className="product-display-config">
-              <InputSwitch
-                inputId="product-show-forwarded"
-                className="product-show-forwarded-switch"
-                checked={showForwardedProducts}
-                onChange={(event: InputSwitchChangeEvent) => setShowForwardedProducts(Boolean(event.value))}
-              />
-              <label htmlFor="product-show-forwarded">Encaminhados</label>
-            </div>
-            <div className="product-bulk-selection-row">
-              <Checkbox
-                inputId="product-select-page"
-                checked={areAllPagedProductsSelected}
-                onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
-              />
-              <label htmlFor="product-select-page">Selecionar página</label>
-              <div className="product-bulk-count">
-                {selectedProductKeys.length > 0 && (
-                  <Button
-                    type="button"
-                    icon={<FontAwesomeIcon icon={faBroom} />}
-                    text
-                    rounded
-                    aria-label="Limpar selecionados"
-                    onClick={clearSelectedProducts}
-                  />
-                )}
-                <span >{selectedProductKeys.length} selecionado(s)</span>
-              </div>
-            </div>
-            <div className="product-bulk-actions-row">
-              <Dropdown
-                ref={bulkActivityDropdownRef}
-                inputId="product-bulk-activity"
-                value={bulkActivityId}
-                onChange={(event: DropdownChangeEvent) => {
-                  const value = event.value
-                  if (value === NONE_ACTIVITY_OPTION_VALUE) {
-                    setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
-                    return
-                  }
-                  setBulkActivityId(toDropdownActivityId(value))
-                }}
-                options={bulkActivityOptions}
-                optionLabel="label"
-                optionValue="value"
-                placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
-                className="product-bulk-dropdown"
-                disabled={bulkActivityOptions.length === 0}
-                showClear
-              />
-              <Button
-                type="button"
-                label="Aplicar aos selecionados"
-                onClick={applyBulkActivityToSelected}
-                disabled={selectedProductKeys.length === 0 || bulkActivityId === null}
-              />
-            </div>
-          </div>
-        )
-      )}
-      {showExportControls && (
-        <div className="product-list-control-panel">
-          <div className="product-bulk-actions-row">
-            <Button
-              type="button"
-              label="Download em Excel"
-              icon={<FontAwesomeIcon icon={faFileExcel} />}
-              onClick={handleExportFilteredProductsToExcel}
-              disabled={filteredAndSortedProducts.length === 0}
-            />
-          </div>
-        </div>
-      )}
-      {showControls && (
-        <div className="product-list-control-panel">
-          <div className="product-field-select">
-            <span className="product-control-label">Campos visíveis</span>
-            <MultiSelect
-              ref={visibleFieldsMultiSelectRef}
-              inputId="product-visible-fields"
-              value={visibleFields}
-              onChange={(event: MultiSelectChangeEvent) => setVisibleFields(event.value as string[])}
-              options={groupedFieldOptions}
-              optionLabel="label"
-              optionValue="value"
-              optionGroupLabel="label"
-              optionGroupChildren="items"
-              optionGroupTemplate={optionGroupTemplate}
-              filter
-              maxSelectedLabels={2}
-              selectedItemsLabel="{0} selecionados"
-            />
-          </div>
-          <div className="product-search-row">
-            <span className="product-control-label">Buscar em</span>
-            <Dropdown
-              ref={searchFieldDropdownRef}
-              inputId="product-search-field"
-              filter
-              value={searchField}
-              onChange={(event: DropdownChangeEvent) => setSearchField(event.value as string)}
-              options={groupedSearchableFieldOptions}
-              optionLabel="label"
-              optionValue="value"
-              optionGroupLabel="label"
-              optionGroupChildren="items"
-              optionGroupTemplate={optionGroupTemplate}
-              className="product-search-column"
-              placeholder="Selecione a coluna"
-            />
-            {selectedSearchFieldType === 'input' && (
-              <InputText
-                value={typeof searchValue === 'string' ? searchValue : ''}
-                onChange={(event) => setSearchValue(event.target.value)}
-                placeholder="Digite para buscar..."
-                className="product-search-input"
-              />
-            )}
-            {selectedSearchFieldType === 'inputNumber' && (
-              <InputNumber
-                value={typeof searchValue === 'number' ? searchValue : null}
-                onValueChange={(event: InputNumberValueChangeEvent) => setSearchValue(event.value ?? null)}
-                placeholder="Digite um número..."
-                className="product-search-input"
-                useGrouping={false}
-              />
-            )}
-            {selectedSearchFieldType === 'date' && (
-              <Calendar
-                ref={searchDateCalendarRef}
-                value={searchValue instanceof Date ? searchValue : null}
-                onChange={(event) => setSearchValue(event.value instanceof Date ? event.value : null)}
-                dateFormat="yy-mm-dd"
-                placeholder="Selecione a data"
-                className="product-search-input"
-                showIcon
-              />
-            )}
-            {selectedSearchFieldType === 'select' && (
-              <Dropdown
-                ref={searchSelectDropdownRef}
-                value={typeof searchValue === 'string' ? searchValue : null}
-                onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as string | null) ?? null)}
-                options={searchSelectOptions}
-                optionLabel="label"
-                optionValue="value"
-                placeholder={`Selecione ${searchableFieldMap[searchField]?.label ?? 'um valor'}`}
-                className="product-search-input"
-                showClear
-                filter
-              />
-            )}
-            {selectedSearchFieldType === 'multipleSelect' && (
-              <MultiSelect
-                ref={searchMultipleSelectRef}
-                value={Array.isArray(searchValue) ? searchValue : []}
-                onChange={(event: MultiSelectChangeEvent) => setSearchValue((event.value as string[]) ?? [])}
-                options={searchSelectOptions}
-                optionLabel="label"
-                optionValue="value"
-                placeholder={`Selecione ${searchableFieldMap[searchField]?.label ?? 'os valores'}`}
-                className="product-search-input"
-                filter
-                display="chip"
-              />
-            )}
-            {selectedSearchFieldType === 'boolean' && (
-              <Dropdown
-                ref={searchBooleanDropdownRef}
-                value={typeof searchValue === 'boolean' ? searchValue : null}
-                onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as boolean | null) ?? null)}
-                options={[
-                  { label: 'Sim', value: true },
-                  { label: 'Não', value: false },
-                ]}
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Selecione"
-                className="product-search-input"
-                showClear
-              />
-            )}
-          </div>
-          <div className="product-sort-row">
-            <span className="product-control-label">Ordenar por</span>
-            <Dropdown
-              ref={sortFieldDropdownRef}
-              inputId="product-sort-field"
-              filter
-              value={sortField}
-              onChange={(event: DropdownChangeEvent) => setSortField(event.value as string)}
-              options={groupedOrderableFieldOptions}
-              optionLabel="label"
-              optionValue="value"
-              optionGroupLabel="label"
-              optionGroupChildren="items"
-              optionGroupTemplate={optionGroupTemplate}
-              className="product-sort-column"
-              placeholder="Selecione a coluna"
-            />
-            <Button
-              type="button"
-              icon={sortDirection === 1 ? 'pi pi-sort-alpha-down' : 'pi pi-sort-alpha-up'}
-              label={sortDirection === 1 ? 'Crescente' : 'Decrescente'}
-              outlined
-              onClick={() => setSortDirection((current) => (current === 1 ? -1 : 1))}
-            />
-          </div>
-        </div>
-      )}
-      {showMarketFilters && (
-        <div className="product-list-control-panel">
-          <div className="product-sort-row product-market-filters">
-            <span className="product-control-label">Filtros mercadológicos</span>
-            {MARKET_FIELD_KEYS.map((field) => (
-              <Dropdown
-                key={field}
-                ref={(element) => {
-                  setMarketFilterDropdownRef(field, element)
-                }}
-                inputId={`product-market-${field}`}
-                filter
-                showClear
-                value={marketFilters[field]}
-                onChange={(event: DropdownChangeEvent) =>
-                  setMarketFilters((current) => {
-                    const nextValue = (event.value as string | null) ?? ''
-                    const currentIndex = MARKET_FIELD_INDEX[field]
-                    const next = { ...current, [field]: nextValue }
-
-                    MARKET_FIELD_KEYS.slice(currentIndex + 1).forEach((dependentField) => {
-                      next[dependentField] = ''
-                    })
-
-                    return next
-                  })
-                }
-                options={marketFilterOptions[field]}
-                optionLabel="label"
-                optionValue="value"
-                className="product-sort-column"
-                placeholder={MARKET_FIELD_LABELS[field]}
-                disabled={MARKET_FIELD_INDEX[field] > 0 && !marketFilters[MARKET_FIELD_KEYS[MARKET_FIELD_INDEX[field] - 1]]}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-
   const renderProductList = useCallback((
     items: ProdutoAtividade[],
     currentLayout: 'list' | 'grid' = 'list',
@@ -1736,13 +1076,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             index={index}
             isSelected={selectedProductKeysSet.has(productKey)}
             isForwarded={isForwardedProduct(produto)}
-            selectedActivity={
-              Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
-                ? (selectedActivitiesByProduct[productKey] ?? null)
-                : (produto.idwfatividaderealizada ?? null)
-            }
+            selectedActivity={getEffectiveActivityId(produto, selectedActivitiesByProduct)}
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
+            showProductImage={showProductImage}
             fieldConfigByKey={fieldConfigByKey}
             specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
             onSpecialFieldChange={handleSpecialFieldChange}
@@ -1761,6 +1098,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     toggleProductSelection,
     handleSpecialFieldChange,
     cardVisibleFields,
+    showProductImage,
     fieldConfigByKey,
   ])
 
@@ -1815,7 +1153,61 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               )}
             >
               <div className="p-dataview-header" ref={stickyHeaderRef}>
-                {header()}
+                <ProductListHeader
+                  readOnlyPackageView={readOnlyPackageView}
+                  showControls={showControls}
+                  setShowControls={setShowControls}
+                  showMarketFilters={showMarketFilters}
+                  setShowMarketFilters={setShowMarketFilters}
+                  showBulkControls={showBulkControls}
+                  setShowBulkControls={setShowBulkControls}
+                  showExportControls={showExportControls}
+                  setShowExportControls={setShowExportControls}
+                  layout={layout}
+                  setLayout={setLayout}
+                  showForwardedProducts={showForwardedProducts}
+                  setShowForwardedProducts={setShowForwardedProducts}
+                  areAllPagedProductsSelected={areAllPagedProductsSelected}
+                  togglePageSelection={togglePageSelection}
+                  selectedProductKeys={selectedProductKeys}
+                  clearSelectedProducts={clearSelectedProducts}
+                  bulkActivityId={bulkActivityId}
+                  setBulkActivityId={setBulkActivityId}
+                  bulkActivityOptions={bulkActivityOptions}
+                  activityOptions={activityOptions}
+                  applyBulkActivityToSelected={applyBulkActivityToSelected}
+                  onExportToExcel={handleExportFilteredProductsToExcel}
+                  canExport={filteredAndSortedProducts.length > 0}
+                  visibleFields={visibleFields}
+                  setVisibleFields={setVisibleFields}
+                  groupedFieldOptions={groupedFieldOptions}
+                  optionGroupTemplate={optionGroupTemplate}
+                  searchField={searchField}
+                  setSearchField={setSearchField}
+                  groupedSearchableFieldOptions={groupedSearchableFieldOptions}
+                  selectedSearchFieldType={selectedSearchFieldType}
+                  searchValue={searchValue}
+                  setSearchValue={setSearchValue}
+                  searchSelectOptions={searchSelectOptions}
+                  searchableFieldMap={searchableFieldMap}
+                  sortField={sortField}
+                  setSortField={setSortField}
+                  groupedOrderableFieldOptions={groupedOrderableFieldOptions}
+                  sortDirection={sortDirection}
+                  setSortDirection={setSortDirection}
+                  marketFilters={marketFilters}
+                  setMarketFilters={setMarketFilters}
+                  marketFilterOptions={marketFilterOptions}
+                  setMarketFilterDropdownRef={setMarketFilterDropdownRef}
+                  bulkActivityDropdownRef={bulkActivityDropdownRef}
+                  visibleFieldsMultiSelectRef={visibleFieldsMultiSelectRef}
+                  searchFieldDropdownRef={searchFieldDropdownRef}
+                  searchSelectDropdownRef={searchSelectDropdownRef}
+                  searchMultipleSelectRef={searchMultipleSelectRef}
+                  searchBooleanDropdownRef={searchBooleanDropdownRef}
+                  sortFieldDropdownRef={sortFieldDropdownRef}
+                  searchDateCalendarRef={searchDateCalendarRef}
+                />
               </div>
               <div className="p-dataview-content">
                 {productPages.length > 0

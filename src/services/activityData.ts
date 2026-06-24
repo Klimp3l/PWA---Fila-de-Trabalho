@@ -3,11 +3,10 @@ import {
   activityProductListPreferencesRepository,
   activityProductSelectionRepository,
   activitySnapshotRepository,
-  activitySyncQueueRepository,
+  activitySyncQueueItemRepository,
 } from './offlineDb'
 import type {
   ActivitySyncQueueItem,
-  ActivitySyncQueueSnapshot,
   AtividadeProdutoColumn,
   ActivityProductListPreferences,
   ActivityProductListPreferencesSnapshot,
@@ -319,101 +318,32 @@ export const removeActivityProductSelections = async (
 }
 
 export const loadActivitySyncQueueItems = async (): Promise<ActivitySyncQueueItem[]> => {
-  const snapshot = await activitySyncQueueRepository.load()
-  if (!snapshot) {
-    return []
-  }
-
-  const snapshotRecord = snapshot as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
-  const itemsBySubmissionId = snapshotRecord.itemsBySubmissionId
-    ?? snapshotRecord.itemsByActivityId
-    ?? {}
-
-  return Object.values(itemsBySubmissionId)
-    .sort((left, right) => right.updatedAt - left.updatedAt)
+  const items = await activitySyncQueueItemRepository.loadAll()
+  return items.sort((left, right) => right.updatedAt - left.updatedAt)
 }
 
 export const upsertActivitySyncQueueItem = async (
   item: ActivitySyncQueueItem,
 ) => {
-  const currentSnapshotRaw = await activitySyncQueueRepository.load()
-  const currentSnapshotRecord = (currentSnapshotRaw as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> } | null)
-  const currentItemsBySubmissionId = currentSnapshotRecord?.itemsBySubmissionId
-    ?? currentSnapshotRecord?.itemsByActivityId
-    ?? {}
+  await activitySyncQueueItemRepository.upsertMany([item])
+}
 
-  const nextSnapshot: ActivitySyncQueueSnapshot = {
-    updatedAt: Date.now(),
-    itemsBySubmissionId: {
-      ...currentItemsBySubmissionId,
-      [item.submissionId]: {
-        ...item,
-        updatedAt: Date.now(),
-      },
-    },
-  }
-
-  await activitySyncQueueRepository.save(nextSnapshot)
+export const upsertManyActivitySyncQueueItems = async (
+  items: ActivitySyncQueueItem[],
+) => {
+  await activitySyncQueueItemRepository.upsertMany(items)
 }
 
 export const removeActivitySyncQueueItem = async (
   submissionId: string,
 ) => {
-  const currentSnapshotRaw = await activitySyncQueueRepository.load()
-  if (!currentSnapshotRaw) {
-    return
-  }
-
-  const currentSnapshotRecord = currentSnapshotRaw as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
-  const nextItems = {
-    ...(currentSnapshotRecord.itemsBySubmissionId
-      ?? currentSnapshotRecord.itemsByActivityId
-      ?? {}),
-  }
-  delete nextItems[submissionId]
-
-  const nextSnapshot: ActivitySyncQueueSnapshot = {
-    updatedAt: Date.now(),
-    itemsBySubmissionId: nextItems,
-  }
-
-  await activitySyncQueueRepository.save(nextSnapshot)
+  await activitySyncQueueItemRepository.remove(submissionId)
 }
 
 export const removeOldSuccessfulSyncQueueItems = async (
   olderThanMs: number,
 ) => {
-  const snapshot = await activitySyncQueueRepository.load()
-  if (!snapshot) {
-    return
-  }
-
-  const snapshotRecord = snapshot as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> }
-  const currentItemsBySubmissionId = snapshotRecord.itemsBySubmissionId
-    ?? snapshotRecord.itemsByActivityId
-    ?? {}
-
-  const now = Date.now()
-  const nextItemsBySubmissionId = Object.entries(currentItemsBySubmissionId).reduce<Record<string, ActivitySyncQueueItem>>(
-    (accumulator, [submissionId, item]) => {
-      const referenceTimestamp = Math.max(item.updatedAt ?? 0, item.createdAt ?? 0)
-      const isOldSuccess = item.status === 'success' && now - referenceTimestamp > olderThanMs
-
-      if (!isOldSuccess) {
-        accumulator[submissionId] = item
-      }
-
-      return accumulator
-    },
-    {},
-  )
-
-  const nextSnapshot: ActivitySyncQueueSnapshot = {
-    updatedAt: Date.now(),
-    itemsBySubmissionId: nextItemsBySubmissionId,
-  }
-
-  await activitySyncQueueRepository.save(nextSnapshot)
+  await activitySyncQueueItemRepository.removeOldSuccessful(olderThanMs)
 }
 
 export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComProdutos[]> => {

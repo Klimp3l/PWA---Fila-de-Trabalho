@@ -12,6 +12,7 @@ interface ActivityProductsPageLocationState {
   selectedActivity?: AtividadeComProdutos | null
   readOnlyPackageView?: boolean
   packageProductKeys?: string[]
+  packageSelectedActivitiesByProduct?: Record<string, number | null>
 }
 
 export function ActivityProductsPage() {
@@ -22,6 +23,7 @@ export function ActivityProductsPage() {
   const selectedActivityFromNavigation = locationState?.selectedActivity ?? null
   const readOnlyPackageView = locationState?.readOnlyPackageView === true
   const packageProductKeys = locationState?.packageProductKeys ?? []
+  const packageSelectedActivitiesByProduct = locationState?.packageSelectedActivitiesByProduct ?? {}
   const shouldLoadAtividades = selectedActivityFromNavigation === null
   const { atividades, isLoading } = useAtividadesWithOnlineRefresh('ActivityProductsPage', {
     enabled: shouldLoadAtividades,
@@ -118,6 +120,7 @@ export function ActivityProductsPage() {
         atividade={selectedActivity}
         readOnlyPackageView={readOnlyPackageView}
         packageProductKeys={packageProductKeys}
+        packageSelectedActivitiesByProduct={packageSelectedActivitiesByProduct}
       />
     </section>
   )

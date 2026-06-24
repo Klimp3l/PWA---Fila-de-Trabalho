@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { updateEncaminhamentos } from '../services/api'
-import { loadActivitySyncQueueItems, upsertActivitySyncQueueItem } from '../services/activityData'
+import { loadActivitySyncQueueItems, upsertActivitySyncQueueItem, upsertManyActivitySyncQueueItems } from '../services/activityData'
 import type { ActivitySyncQueueItem } from '../types/workflow'
 
 interface ActivitySyncQueueContextValue {
@@ -23,12 +23,18 @@ interface ActivitySyncQueueContextValue {
 
 const ActivitySyncQueueContext = createContext<ActivitySyncQueueContextValue | null>(null)
 
+const MAX_AUTO_RETRIES = 5
+const BASE_RETRY_DELAY_MS = 2_000
+const MAX_RETRY_DELAY_MS = 60_000
+
 interface ActivitySyncQueueProviderProps {
   children: ReactNode
 }
 
 export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProviderProps) {
   const toastRef = useRef<Toast | null>(null)
+  const retryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const syncQueueItemsRef = useRef<ActivitySyncQueueItem[]>([])
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     if (typeof navigator === 'undefined') {
       return true
@@ -37,6 +43,18 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
   })
   const [processingSubmissionId, setProcessingSubmissionId] = useState<string | null>(null)
   const [syncQueueItems, setSyncQueueItems] = useState<ActivitySyncQueueItem[]>([])
+
+  useEffect(() => {
+    syncQueueItemsRef.current = syncQueueItems
+  }, [syncQueueItems])
+
+  useEffect(() => {
+    const timers = retryTimersRef.current
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -59,15 +77,16 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
   useEffect(() => {
     void loadActivitySyncQueueItems()
       .then((items) => {
-        const recoveredItems = items.map((item) => (
-          item.status === 'processing'
-            ? { ...item, status: 'pending' as const, updatedAt: Date.now() }
-            : item
-        ))
+        const recoveredItems = items.map((item) => {
+          const normalizedItem = { ...item, retryCount: item.retryCount ?? 0 }
+          return normalizedItem.status === 'processing'
+            ? { ...normalizedItem, status: 'pending' as const, updatedAt: Date.now() }
+            : normalizedItem
+        })
         setSyncQueueItems(recoveredItems)
         const recoveredFromProcessing = recoveredItems.filter((item) => item.status === 'pending')
         if (recoveredFromProcessing.length > 0) {
-          void Promise.all(recoveredFromProcessing.map(async (item) => upsertActivitySyncQueueItem(item)))
+          void upsertManyActivitySyncQueueItems(recoveredFromProcessing)
         }
       })
       .catch((error) => {
@@ -144,16 +163,67 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
     return processingItem
   }, [])
 
+  const reEnqueuePendingItem = useCallback(async (submissionId: string) => {
+    const current = syncQueueItemsRef.current.find((queueItem) => queueItem.submissionId === submissionId)
+    if (!current || current.status !== 'error') {
+      return
+    }
+
+    const pendingItem: ActivitySyncQueueItem = {
+      ...current,
+      status: 'pending',
+      errorMessage: null,
+      updatedAt: Date.now(),
+    }
+
+    setSyncQueueItems((items) =>
+      items.map((queueItem) => (
+        queueItem.submissionId === submissionId ? pendingItem : queueItem
+      ))
+    )
+    await upsertActivitySyncQueueItem(pendingItem)
+  }, [])
+
+  const scheduleRetry = useCallback((item: ActivitySyncQueueItem) => {
+    if (item.retryCount >= MAX_AUTO_RETRIES) {
+      return
+    }
+
+    const delay = Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * 2 ** (item.retryCount - 1))
+
+    const existingTimer = retryTimersRef.current.get(item.submissionId)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+    }
+
+    const timer = setTimeout(() => {
+      retryTimersRef.current.delete(item.submissionId)
+      void reEnqueuePendingItem(item.submissionId)
+    }, delay)
+
+    retryTimersRef.current.set(item.submissionId, timer)
+  }, [reEnqueuePendingItem])
+
   const processQueueItem = useCallback(async (item: ActivitySyncQueueItem) => {
     setProcessingSubmissionId(item.submissionId)
     try {
       const processingItem = await markQueueItemAsProcessing(item)
       const response = await updateEncaminhamentos(processingItem.payload)
-      const hasError = response?.error !== ''
+      const isSuccessful = response !== null
+        && typeof response.error === 'string'
+        && response.error.trim() === ''
 
-      if (hasError) {
-        const message = response?.error ?? 'O servidor retornou erro ao enviar os encaminhamentos.'
-        await markQueueItemAsError(processingItem, message)
+      if (!isSuccessful) {
+        const serverError = typeof response?.error === 'string' ? response.error.trim() : ''
+        const message = serverError !== ''
+          ? serverError
+          : 'O servidor retornou uma resposta invalida ao enviar os encaminhamentos.'
+        const failedItem: ActivitySyncQueueItem = {
+          ...processingItem,
+          retryCount: processingItem.retryCount + 1,
+        }
+        await markQueueItemAsError(failedItem, message)
+        scheduleRetry(failedItem)
         toastRef.current?.show({
           severity: 'error',
           summary: 'Falha ao enviar',
@@ -173,7 +243,12 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
     } catch (error) {
       console.error('[ActivitySyncQueueProvider] Falha ao enviar encaminhamentos.', error)
       const message = error instanceof Error ? error.message : 'Nao foi possivel enviar os encaminhamentos.'
-      await markQueueItemAsError(item, message)
+      const failedItem: ActivitySyncQueueItem = {
+        ...item,
+        retryCount: item.retryCount + 1,
+      }
+      await markQueueItemAsError(failedItem, message)
+      scheduleRetry(failedItem)
       toastRef.current?.show({
         severity: 'error',
         summary: 'Falha ao enviar',
@@ -183,7 +258,7 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
     } finally {
       setProcessingSubmissionId(null)
     }
-  }, [markQueueItemAsError, markQueueItemAsProcessing, markQueueItemAsSuccess])
+  }, [markQueueItemAsError, markQueueItemAsProcessing, markQueueItemAsSuccess, scheduleRetry])
 
   useEffect(() => {
     if (!isOnline) {
@@ -206,7 +281,14 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
     if (processingSubmissionId !== null) {
       return
     }
-    await enqueueForSync(item)
+
+    const existingTimer = retryTimersRef.current.get(item.submissionId)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+      retryTimersRef.current.delete(item.submissionId)
+    }
+
+    await enqueueForSync({ ...item, retryCount: 0 })
   }, [enqueueForSync, processingSubmissionId])
 
   const contextValue = useMemo<ActivitySyncQueueContextValue>(() => ({

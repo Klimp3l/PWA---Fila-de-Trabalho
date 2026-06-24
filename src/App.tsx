@@ -11,10 +11,9 @@ import { clearAtividadesCache } from './hooks/useAtividadesWithOnlineRefresh'
 import { setOfflineDataUserScope } from './services/offlineDb'
 import { removeOldSuccessfulSyncQueueItems } from './services/activityData'
 import { ActivitySyncQueueProvider } from './context/ActivitySyncQueueContext'
+import { AUTH_STORAGE_KEY, AUTH_USER_LABEL_STORAGE_KEY } from './constants/storageKeys'
 
 type AuthStatus = 'authenticated' | 'unauthenticated'
-const AUTH_STORAGE_KEY = 'odw:is-authenticated'
-const AUTH_USER_LABEL_STORAGE_KEY = 'odw:user-label'
 const TWO_DAYS_IN_MS = 2 * 24 * 60 * 60 * 1000
 
 const getUserLabelFromStorage = () => {

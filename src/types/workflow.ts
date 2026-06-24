@@ -117,12 +117,12 @@ export interface ActivityProductListPreferencesSnapshot {
 
 export interface EncaminhamentoSyncPayloadItem {
   idwfocorrencia: number
+  idwffilatrabalho: number
   idwfatividadeencaminhamento: number
   observacao: string
-  qtdproduzido?: number
-  qtdestoquecorreta?: number
+  qtdproduzido?: number | null
+  qtdestoquecorreta?: number | null
   datavalidade?: string
-  idwffilatrabalho: number
 }
 
 export interface EncaminhamentoSyncPayload {
@@ -142,8 +142,9 @@ export interface ActivitySyncQueueProductSnapshot {
   idwfocorrencia: number
   idwfatividadeencaminhamento: number
   observacao: string
-  observacao2?: string
-  observacao3?: string
+  qtdproduzido?: number | null
+  qtdestoquecorreta?: number | null
+  datavalidade?: string
 }
 
 export interface ActivitySyncQueueItem {
@@ -157,6 +158,7 @@ export interface ActivitySyncQueueItem {
   products: ActivitySyncQueueProductSnapshot[]
   status: ActivitySyncQueueStatus
   errorMessage: string | null
+  retryCount: number
   createdAt: number
   updatedAt: number
 }

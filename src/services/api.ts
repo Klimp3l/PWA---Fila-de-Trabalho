@@ -1,3 +1,5 @@
+import type { EncaminhamentoSyncPayload } from '../types/workflow'
+
 const DEFAULT_API_BASE_URL = ''
 const EXEC_TAREFA_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend'
 const SESSION_INVALID_HEADER = 'odw_redirect'
@@ -49,18 +51,6 @@ export interface UsuarioInfo {
   nome: string
   email: string
   telefonecelular: string
-}
-
-export interface EncaminhamentoUpdateItem {
-  idwfocorrencia: number
-  idwfatividadeencaminhamento: number
-  observacao: string
-  idwffilatrabalho: number
-}
-
-export interface EncaminhamentoUpdatePayload {
-  idwfprocesso: number
-  encaminhamentos: EncaminhamentoUpdateItem[]
 }
 
 export interface EncaminhamentoUpdateResponse {
@@ -226,7 +216,7 @@ export const getInfoUsuario = async (
 }
 
 export const updateEncaminhamentos = async (
-  payload: EncaminhamentoUpdatePayload,
+  payload: EncaminhamentoSyncPayload,
   baseUrl = API_BASE_URL,
 ): Promise<EncaminhamentoUpdateResponse | null> => {
   const body = new URLSearchParams({
