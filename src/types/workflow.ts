@@ -101,6 +101,7 @@ export interface ActivityProductSelectionsSnapshot {
 export interface ActivityProductListPreferences {
   layout: 'list' | 'grid'
   visibleFields: string[]
+  exportFields?: string[]
   sortField: string
   sortDirection: 1 | -1
   showForwardedProducts: boolean

@@ -699,6 +699,55 @@
   width: 100%;
 }
 
+.product-export-panel {
+  justify-items: stretch;
+}
+
+.product-export-panel .product-field-select {
+  width: 100%;
+}
+
+.product-export-order {
+  width: 100%;
+}
+
+.product-export-order > small {
+  display: block;
+  margin: -1px 0 6px;
+  color: var(--wfg-text-soft);
+  font-size: 0.74rem;
+}
+
+.product-export-order .p-orderlist {
+  width: 100%;
+}
+
+.product-export-order .p-orderlist-list-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.product-export-order .p-orderlist-list {
+  width: 100%;
+}
+
+.product-export-order .p-orderlist-item {
+  padding: 0.55rem 0.7rem;
+}
+
+.product-export-order-item {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-export-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
 .product-search-row,
 .product-sort-row {
   display: grid;
