@@ -9,15 +9,23 @@ export const clearAtividadesCache = () => {
 }
 
 export const syncActivitySelectionsInCache = (
-  activityId: number,
+  activityScopeKey: string,
   selectionsByProduct: Record<string, number | null>,
 ) => {
   if (atividadesCache === null) {
     return
   }
 
+  const [activityIdRaw, companyIdRaw] = activityScopeKey.split('-')
+  const activityId = Number(activityIdRaw)
+  const companyId = Number(companyIdRaw)
+
+  if (!Number.isFinite(activityId) || !Number.isFinite(companyId)) {
+    return
+  }
+
   atividadesCache = atividadesCache.map((atividade) => {
-    if (atividade.idwfatividade !== activityId) {
+    if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
       return atividade
     }
 
@@ -34,6 +42,45 @@ export const syncActivitySelectionsInCache = (
           ...produto,
           idwfatividaderealizada: selectionsByProduct[productKey] ?? null,
         }
+      }),
+    }
+  })
+}
+
+export const removeActivityFromCache = (activityId: number) => {
+  if (atividadesCache === null) {
+    return
+  }
+
+  atividadesCache = atividadesCache.filter((atividade) => atividade.idwfatividade !== activityId)
+}
+
+export const removeActivityProductsFromCache = (
+  activityScopeKey: string,
+  productKeys: Set<string>,
+) => {
+  if (atividadesCache === null || productKeys.size === 0) {
+    return
+  }
+
+  const [activityIdRaw, companyIdRaw] = activityScopeKey.split('-')
+  const activityId = Number(activityIdRaw)
+  const companyId = Number(companyIdRaw)
+
+  if (!Number.isFinite(activityId) || !Number.isFinite(companyId)) {
+    return
+  }
+
+  atividadesCache = atividadesCache.map((atividade) => {
+    if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
+      return atividade
+    }
+
+    return {
+      ...atividade,
+      produtos: atividade.produtos.filter((produto) => {
+        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+        return !productKeys.has(productKey)
       }),
     }
   })

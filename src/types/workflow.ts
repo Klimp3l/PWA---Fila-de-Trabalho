@@ -6,11 +6,22 @@ export interface AtividadeElegivelProduto {
 export interface AtividadeProdutoColumn {
   label: string
   type: 'select' | 'multipleSelect' | 'input' | 'inputNumber' | 'date' | 'boolean'
+  inputType?: 'select' | 'multipleSelect' | 'input' | 'inputNumber' | 'date' | 'boolean'
   searchable: boolean
   sortable: boolean
   icon?: string
   options?: string[]
   defaultVisible?: boolean
+}
+
+export interface AtividadeProdutoGroupColumnItem extends AtividadeProdutoColumn {
+  key: string
+}
+
+export interface AtividadeProdutoGroupColumn {
+  label: string
+  icon?: string
+  itens: AtividadeProdutoGroupColumnItem[]
 }
 
 export interface ProdutoAtividade {
@@ -53,6 +64,9 @@ export interface ProdutoAtividade {
   qtdestoqueatualcd: number | null
   qtdunentrada: number | null
   recorrencia120dias: number | null
+  datavalidade?: string
+  qtdproduzido?: number | null
+  qtdestoquecorreta?: number | null
   /** Enviado pela API em alguns fluxos; usado para imagem do produto na lista. */
   urlImagem?: string
 }
@@ -66,6 +80,7 @@ export interface AtividadeComProdutos {
   wfatividade: string
   atividadeselegiveis: AtividadeElegivelProduto[]
   produtos: ProdutoAtividade[]
+  groupcolumns?: AtividadeProdutoGroupColumn[]
   columns: Record<string, AtividadeProdutoColumn>
 }
 
@@ -77,7 +92,7 @@ export interface ActivitySnapshot {
 export interface ActivityProductSelectionsSnapshot {
   updatedAt: number
   /**
-   * Chave: id da atividade (`idwfatividade`)
+   * Chave: escopo da atividade (`idwfatividade-idempresa`)
    * Valor: mapa da chave do produto para `idwfatividaderealizada` escolhido.
    */
   selectionsByActivityId: Record<string, Record<string, number | null>>
@@ -88,13 +103,65 @@ export interface ActivityProductListPreferences {
   visibleFields: string[]
   sortField: string
   sortDirection: 1 | -1
+  showForwardedProducts: boolean
 }
 
 export interface ActivityProductListPreferencesSnapshot {
   updatedAt: number
   /**
-   * Chave: id da atividade (`idwfatividade`)
+   * Chave: escopo da atividade (`idwfatividade-idempresa`)
    * Valor: preferências de exibição da lista de produtos.
    */
   preferencesByActivityId: Record<string, ActivityProductListPreferences>
+}
+
+export interface EncaminhamentoSyncPayloadItem {
+  idwfocorrencia: number
+  idwfatividadeencaminhamento: number
+  observacao: string
+  qtdproduzido?: number
+  qtdestoquecorreta?: number
+  datavalidade?: string
+  idwffilatrabalho: number
+}
+
+export interface EncaminhamentoSyncPayload {
+  idwfprocesso: number
+  encaminhamentos: EncaminhamentoSyncPayloadItem[]
+}
+
+export type ActivitySyncQueueStatus = 'pending' | 'processing' | 'error' | 'success'
+export type ActivitySyncQueueSource = 'home' | 'product-list'
+
+export interface ActivitySyncQueueProductSnapshot {
+  productKey: string
+  idproduto: number
+  codigobarras: string
+  produto: string
+  idwffilatrabalho: number
+  idwfocorrencia: number
+  idwfatividadeencaminhamento: number
+  observacao: string
+  observacao2?: string
+  observacao3?: string
+}
+
+export interface ActivitySyncQueueItem {
+  submissionId: string
+  activityKey: string
+  activityId: number
+  source: ActivitySyncQueueSource
+  atividade: AtividadeComProdutos
+  payload: EncaminhamentoSyncPayload
+  productCount: number
+  products: ActivitySyncQueueProductSnapshot[]
+  status: ActivitySyncQueueStatus
+  errorMessage: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ActivitySyncQueueSnapshot {
+  updatedAt: number
+  itemsBySubmissionId: Record<string, ActivitySyncQueueItem>
 }

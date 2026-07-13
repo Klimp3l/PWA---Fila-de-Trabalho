@@ -13,15 +13,24 @@ import { Message } from 'primereact/message'
 import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect'
 import { Toast } from 'primereact/toast'
 import { classNames } from 'primereact/utils'
+import type { IconProp } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faBroom,
+  faBoxesStacked,
   faBuilding,
+  faCalendarDays,
+  faEye,
+  faFileExcel,
   faLayerGroup,
   faList,
   faPersonWalking,
+  faScaleBalanced,
+  faShareFromSquare,
   faTableCellsLarge,
+  faTags,
 } from '@fortawesome/free-solid-svg-icons'
+import * as XLSX from 'xlsx-js-style'
 import type {
   AtividadeComProdutos,
   AtividadeProdutoColumn,
@@ -29,8 +38,10 @@ import type {
 } from '../types/workflow'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
 import {
+  getActivityScopeKey,
   getProdutoAtividadeKey,
   loadActivityProductListPreferences,
+  removeActivityProductSelections,
   saveActivityProductListPreferences,
   saveActivityProductSelections,
 } from '../services/activityData'
@@ -53,8 +64,12 @@ import {
   toDropdownActivityId,
 } from './product-list/utils'
 import type { ActivityProductListPreferences } from '../types/workflow'
-import { syncActivitySelectionsInCache } from '../hooks/useAtividadesWithOnlineRefresh'
-import { updateEncaminhamentos } from '../services/api'
+import {
+  removeActivityProductsFromCache,
+  syncActivitySelectionsInCache,
+} from '../hooks/useAtividadesWithOnlineRefresh'
+import { useActivitySyncQueue } from '../context/ActivitySyncQueueContext'
+import { createActivitySyncQueueItem, getQueueItemProductKeys } from '../services/activitySyncQueueUtils'
 
 interface ProductCardItemProps {
   produto: ProdutoAtividade
@@ -66,8 +81,11 @@ interface ProductCardItemProps {
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
+  specialFieldValues: Record<string, string | number | boolean | null>
+  onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
   onToggleSelect: (productKey: string, checked: boolean) => void
   onActivityChange: (productKey: string, activityId: number | null) => void
+  readOnly: boolean
 }
 
 const ProductCardItem = memo(function ProductCardItem({
@@ -80,12 +98,19 @@ const ProductCardItem = memo(function ProductCardItem({
   activityOptions,
   visibleFields,
   fieldConfigByKey,
+  specialFieldValues,
+  onSpecialFieldChange,
   onToggleSelect,
   onActivityChange,
+  readOnly,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
 
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
+    if (readOnly) {
+      return
+    }
+
     const clickTarget = event.target as HTMLElement | null
 
     if (clickTarget?.closest(CARD_INTERACTIVE_SELECTOR)) {
@@ -134,10 +159,10 @@ const ProductCardItem = memo(function ProductCardItem({
     >
       <Card
         className={classNames('product-card', {
-          'product-card-selected': isSelected,
+          'product-card-selected': isSelected && !readOnly,
           'product-card-forwarded': isForwarded && !isSelected,
         })}
-        onClick={handleCardClick}
+        onClick={readOnly ? undefined : handleCardClick}
       >
         <div
           className={classNames('product-card-content', {
@@ -181,7 +206,48 @@ const ProductCardItem = memo(function ProductCardItem({
                     {fieldConfigByKey[field]?.icon && <i className={fieldConfigByKey[field].icon} aria-hidden="true" />}
                     {fieldConfigByKey[field]?.label || field}
                     :{' '}
-                    {formatFieldValue(fieldConfigByKey[field], getProdutoFieldValue(produto, field))}
+                    {!(fieldConfigByKey[field]?.inputType) && (
+                      formatFieldValue(fieldConfigByKey[field], getProdutoFieldValue(produto, field))
+                    )}
+                    {fieldConfigByKey[field]?.inputType === 'input' ? (
+                      <InputText
+                        value={String(specialFieldValues[field] ?? getProdutoFieldValue(produto, field) ?? '')}
+                        onChange={(event) => onSpecialFieldChange(productKey, field, event.target.value)}
+                        disabled={readOnly}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'inputNumber' ? (
+                      <InputNumber
+                        value={typeof specialFieldValues[field] === 'number'
+                          ? specialFieldValues[field] as number
+                          : (typeof getProdutoFieldValue(produto, field) === 'number' ? getProdutoFieldValue(produto, field) as number : null)}
+                        onValueChange={(event: InputNumberValueChangeEvent) => onSpecialFieldChange(productKey, field, event.value ?? null)}
+                        disabled={readOnly}
+                        useGrouping={false}
+                        minFractionDigits={2}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'date' ? (
+                      <Calendar
+                        value={(() => {
+                          const rawValue = specialFieldValues[field] ?? getProdutoFieldValue(produto, field)
+                          if (typeof rawValue !== 'string' || !rawValue.trim()) {
+                            return null
+                          }
+                          const date = new Date(rawValue)
+                          return Number.isNaN(date.getTime()) ? null : date
+                        })()}
+                        onChange={(event) => {
+                          const dateValue = event.value instanceof Date && !Number.isNaN(event.value.getTime())
+                            ? `${event.value.getFullYear()}-${`${event.value.getMonth() + 1}`.padStart(2, '0')}-${`${event.value.getDate()}`.padStart(2, '0')}`
+                            : ''
+                          onSpecialFieldChange(productKey, field, dateValue)
+                        }}
+                        dateFormat="yy-mm-dd"
+                        showIcon
+                        disabled={readOnly}
+                      />
+                    ) : null}
                   </p>
                 ))}
               </div>
@@ -195,9 +261,91 @@ const ProductCardItem = memo(function ProductCardItem({
 
 interface ProductListProps {
   atividade: AtividadeComProdutos | null
+  readOnlyPackageView?: boolean
+  packageProductKeys?: string[]
 }
 
 type SearchFilterValue = string | number | Date | string[] | boolean | null
+type FieldOption = {
+  label: string
+  value: string
+  type: AtividadeProdutoColumn['type']
+  options: string[] | undefined
+  searchable: boolean
+  sortable: boolean
+}
+type ColumnGroupKey = 'produto' | 'mercadologico' | 'datasValores' | 'quantidade' | 'estoque'
+type GroupedFieldOptions = {
+  label: string
+  icon: IconProp
+  items: FieldOption[]
+}
+
+const COLUMN_GROUPS: Array<{ key: ColumnGroupKey; label: string; icon: IconProp }> = [
+  { key: 'produto', label: 'Produto', icon: faTags },
+  { key: 'mercadologico', label: 'Mercadologico', icon: faLayerGroup },
+  { key: 'datasValores', label: 'Datas e Valores', icon: faCalendarDays },
+  { key: 'quantidade', label: 'Quantidade', icon: faScaleBalanced },
+  { key: 'estoque', label: 'Estoque', icon: faBoxesStacked },
+]
+
+const resolveColumnGroup = (field: string): ColumnGroupKey => {
+  const normalizedField = field.toLowerCase()
+
+  if (MARKET_FIELD_KEYS.some((marketField) => marketField === normalizedField)) {
+    return 'mercadologico'
+  }
+
+  if (
+    normalizedField.includes('estoque')
+    || normalizedField.includes('ruptura')
+    || normalizedField.includes('abastecimento')
+  ) {
+    return 'estoque'
+  }
+
+  if (
+    normalizedField.includes('qtd')
+    || normalizedField.includes('quantidade')
+    || normalizedField.includes('unentrada')
+  ) {
+    return 'quantidade'
+  }
+
+  if (
+    normalizedField.includes('data')
+    || normalizedField.includes('hora')
+    || normalizedField.includes('valor')
+    || normalizedField.includes('preco')
+    || normalizedField.includes('dias')
+  ) {
+    return 'datasValores'
+  }
+
+  return 'produto'
+}
+
+const groupFieldOptions = (options: FieldOption[]): GroupedFieldOptions[] => {
+  const optionsByGroup = options.reduce<Record<ColumnGroupKey, FieldOption[]>>((accumulator, option) => {
+    const group = resolveColumnGroup(option.value)
+    accumulator[group].push(option)
+    return accumulator
+  }, {
+    produto: [],
+    mercadologico: [],
+    datasValores: [],
+    quantidade: [],
+    estoque: [],
+  })
+
+  return COLUMN_GROUPS
+    .map((group) => ({
+      label: group.label,
+      icon: group.icon,
+      items: optionsByGroup[group.key],
+    }))
+    .filter((group) => group.items.length > 0)
+}
 
 const normalizeBooleanValue = (value: unknown): boolean | null => {
   if (typeof value === 'boolean') {
@@ -236,17 +384,69 @@ const formatDateForComparison = (value: unknown) => {
   return ''
 }
 
-export function ProductList({ atividade }: ProductListProps) {
+const sanitizeFileNameSegment = (value: string) => {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+const parseExcelDateValue = (value: unknown): Date | null => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value
+  }
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const parsedDate = new Date(trimmed)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+const resolveExcelCellValue = (fieldConfig: AtividadeProdutoColumn | undefined, rawValue: unknown) => {
+  const configuredType = String(fieldConfig?.type ?? '').toLowerCase()
+
+  if (configuredType === 'inputnumber' || configuredType === 'number' || configuredType === 'currency' || configuredType === 'money') {
+    const numeric = typeof rawValue === 'number' ? rawValue : Number(rawValue)
+    if (Number.isFinite(numeric)) {
+      return numeric
+    }
+    return formatFieldValue(fieldConfig, rawValue)
+  }
+
+  if (configuredType === 'date') {
+    const dateValue = parseExcelDateValue(rawValue)
+    return dateValue ?? formatFieldValue(fieldConfig, rawValue)
+  }
+
+  if (configuredType === 'boolean') {
+    const booleanValue = normalizeBooleanValue(rawValue)
+    return booleanValue ?? formatFieldValue(fieldConfig, rawValue)
+  }
+
+  return formatFieldValue(fieldConfig, rawValue)
+}
+
+export function ProductList({ atividade, readOnlyPackageView = false, packageProductKeys = [] }: ProductListProps) {
   const NONE_ACTIVITY_OPTION_VALUE = '__none__'
   const [layout, setLayout] = useState<'list' | 'grid'>('grid')
   const [visibleFields, setVisibleFields] = useState<string[]>([])
   const [showControls, setShowControls] = useState(false)
   const [showMarketFilters, setShowMarketFilters] = useState(false)
   const [showBulkControls, setShowBulkControls] = useState(true)
+  const [showExportControls, setShowExportControls] = useState(false)
   const [searchField, setSearchField] = useState('produto')
   const [searchValue, setSearchValue] = useState<SearchFilterValue>('')
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
+  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
     departamento: '',
     setor: '',
@@ -260,14 +460,43 @@ export function ProductList({ atividade }: ProductListProps) {
   const [activePage, setActivePage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
-  const hasLoadedPreferencesRef = useRef<number | null>(null)
+  const [locallySyncedProductKeys, setLocallySyncedProductKeys] = useState<Set<string>>(new Set())
+  const { enqueueForSync } = useActivitySyncQueue()
+  const hasLoadedPreferencesRef = useRef<string | null>(null)
   const saveSelectionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toastRef = useRef<Toast | null>(null)
+  const stickyHeaderRef = useRef<HTMLDivElement | null>(null)
+  const [isStickyHeaderStuck, setIsStickyHeaderStuck] = useState(false)
+  const bulkActivityDropdownRef = useRef<Dropdown>(null)
+  const visibleFieldsMultiSelectRef = useRef<MultiSelect>(null)
+  const searchFieldDropdownRef = useRef<Dropdown>(null)
+  const searchSelectDropdownRef = useRef<Dropdown>(null)
+  const searchMultipleSelectRef = useRef<MultiSelect>(null)
+  const searchBooleanDropdownRef = useRef<Dropdown>(null)
+  const sortFieldDropdownRef = useRef<Dropdown>(null)
+  const searchDateCalendarRef = useRef<Calendar>(null)
+  const marketFilterDropdownRefs = useRef<Partial<Record<MarketFieldKey, Dropdown | null>>>({})
 
-  const products = useMemo(() => atividade?.produtos ?? [], [atividade])
+  const packageProductKeysSet = useMemo(() => new Set(packageProductKeys), [packageProductKeys])
+
+  const products = useMemo(() => {
+    const baseProducts = atividade?.produtos ?? []
+    const packageFilteredProducts = readOnlyPackageView
+      ? baseProducts.filter((produto) => packageProductKeysSet.has(getProdutoAtividadeKey(produto)))
+      : baseProducts
+
+    if (locallySyncedProductKeys.size === 0) {
+      return packageFilteredProducts
+    }
+    return packageFilteredProducts.filter((produto) => !locallySyncedProductKeys.has(getProdutoAtividadeKey(produto)))
+  }, [atividade, locallySyncedProductKeys, packageProductKeysSet, readOnlyPackageView])
   const activityEligibleItems = useMemo(() => atividade?.atividadeselegiveis ?? [], [atividade])
+  const defaultBulkActivityId = useMemo<number | null>(
+    () => (activityEligibleItems.length === 1 ? activityEligibleItems[0].idwfatividaderealizada : null),
+    [activityEligibleItems],
+  )
   const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
-  const allFieldOptions = useMemo(() => {
+  const allFieldOptions = useMemo<FieldOption[]>(() => {
     return Object.entries(backendColumns)
       .map((field) => ({
         label: field[1].label ?? field[0],
@@ -301,6 +530,18 @@ export function ProductList({ atividade }: ProductListProps) {
   const orderableFieldOptions = useMemo(
     () => allFieldOptions.filter((option) => option.sortable),
     [allFieldOptions],
+  )
+  const groupedFieldOptions = useMemo(
+    () => groupFieldOptions(fieldOptions),
+    [fieldOptions],
+  )
+  const groupedSearchableFieldOptions = useMemo(
+    () => groupFieldOptions(searchableFieldOptions),
+    [searchableFieldOptions],
+  )
+  const groupedOrderableFieldOptions = useMemo(
+    () => groupFieldOptions(orderableFieldOptions),
+    [orderableFieldOptions],
   )
   const searchableFieldMap = useMemo(
     () => searchableFieldOptions.reduce<Record<string, typeof searchableFieldOptions[number]>>((accumulator, option) => {
@@ -412,15 +653,29 @@ export function ProductList({ atividade }: ProductListProps) {
   }, [fieldOptions])
 
   useEffect(() => {
+    setLocallySyncedProductKeys(new Set())
+  }, [atividade?.idwfatividade])
+
+  useEffect(() => {
     const initialSelectedActivities = products.reduce<Record<string, number | null>>((accumulator, produto) => {
       accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
       return accumulator
     }, {})
+    const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | boolean | null>>>((accumulator, produto) => {
+      const productKey = getProdutoAtividadeKey(produto)
+      accumulator[productKey] = {
+        datavalidade: produto.datavalidade ?? '',
+        qtdproduzido: produto.qtdproduzido ?? null,
+        qtdestoquecorreta: produto.qtdestoquecorreta ?? null,
+      }
+      return accumulator
+    }, {})
 
     setSelectedActivitiesByProduct(initialSelectedActivities)
+    setSpecialFieldValuesByProduct(initialSpecialFieldValues)
     setSelectedProductKeys([])
-    setBulkActivityId(null)
-  }, [products])
+    setBulkActivityId(defaultBulkActivityId)
+  }, [defaultBulkActivityId, products])
 
   useEffect(() => {
     const availableValues = new Set(searchableFieldOptions.map((option) => option.value))
@@ -492,12 +747,12 @@ export function ProductList({ atividade }: ProductListProps) {
       return
     }
 
-    const currentActivityId = atividade.idwfatividade
+    const currentActivityScopeKey = getActivityScopeKey(atividade)
     hasLoadedPreferencesRef.current = null
 
     let isCancelled = false
 
-    void loadActivityProductListPreferences(currentActivityId)
+    void loadActivityProductListPreferences(currentActivityScopeKey)
       .then((preferences) => {
         if (isCancelled || hasLoadedPreferencesRef.current !== null) {
           return
@@ -520,18 +775,20 @@ export function ProductList({ atividade }: ProductListProps) {
           setSortField(
             availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
           )
+          setShowForwardedProducts(preferences.showForwardedProducts ?? true)
         } else {
           setLayout('grid')
           setSortDirection(1)
           setSortField(defaultSortField)
+          setShowForwardedProducts(true)
         }
 
-        hasLoadedPreferencesRef.current = currentActivityId
+        hasLoadedPreferencesRef.current = currentActivityScopeKey
       })
       .catch((error) => {
         console.warn('[ProductList] Falha ao carregar preferências de visualização da atividade.', error)
         if (!isCancelled && hasLoadedPreferencesRef.current === null) {
-          hasLoadedPreferencesRef.current = currentActivityId
+          hasLoadedPreferencesRef.current = currentActivityScopeKey
         }
       })
 
@@ -541,7 +798,7 @@ export function ProductList({ atividade }: ProductListProps) {
   }, [atividade, fieldOptions, orderableFieldOptions])
 
   useEffect(() => {
-    if (!atividade || hasLoadedPreferencesRef.current !== atividade.idwfatividade) {
+    if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
       return
     }
 
@@ -550,12 +807,73 @@ export function ProductList({ atividade }: ProductListProps) {
       visibleFields: visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
       sortField,
       sortDirection,
+      showForwardedProducts,
     }
 
-    void saveActivityProductListPreferences(atividade.idwfatividade, preferences).catch((error) => {
+    void saveActivityProductListPreferences(getActivityScopeKey(atividade), preferences).catch((error) => {
       console.warn('[ProductList] Falha ao persistir preferências de visualização da atividade.', error)
     })
-  }, [atividade, layout, sortDirection, sortField, visibleFields])
+  }, [atividade, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
+
+  const setMarketFilterDropdownRef = useCallback((field: MarketFieldKey, element: Dropdown | null) => {
+    marketFilterDropdownRefs.current[field] = element
+  }, [])
+
+  useEffect(() => {
+    const stickyHeaderElement = stickyHeaderRef.current
+
+    if (!stickyHeaderElement) {
+      return
+    }
+
+    let animationFrameId: number | null = null
+
+    const closeFloatingPanels = () => {
+      visibleFieldsMultiSelectRef.current?.hide()
+      searchFieldDropdownRef.current?.hide()
+      searchSelectDropdownRef.current?.hide()
+      searchMultipleSelectRef.current?.hide()
+      searchBooleanDropdownRef.current?.hide()
+      sortFieldDropdownRef.current?.hide()
+      bulkActivityDropdownRef.current?.hide()
+        ; (searchDateCalendarRef.current as unknown as { hideOverlay?: () => void } | null)?.hideOverlay?.()
+      MARKET_FIELD_KEYS.forEach((field) => {
+        marketFilterDropdownRefs.current[field]?.hide()
+      })
+    }
+
+    const updateStickyState = () => {
+      const { top } = stickyHeaderElement.getBoundingClientRect()
+      setIsStickyHeaderStuck(top <= 0)
+    }
+
+    const handleScroll = () => {
+      if (animationFrameId !== null) {
+        return
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null
+        const { top } = stickyHeaderElement.getBoundingClientRect()
+        if (top <= 0) {
+          closeFloatingPanels()
+        }
+        updateStickyState()
+      })
+    }
+
+    updateStickyState()
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleScroll)
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
+      window.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('resize', handleScroll)
+    }
+  }, [])
 
   useEffect(() => {
     if (!atividade) {
@@ -566,12 +884,12 @@ export function ProductList({ atividade }: ProductListProps) {
       clearTimeout(saveSelectionsTimeoutRef.current)
     }
 
-    const activityId = atividade.idwfatividade
+    const activityScopeKey = getActivityScopeKey(atividade)
     saveSelectionsTimeoutRef.current = setTimeout(() => {
-      void saveActivityProductSelections(activityId, selectedActivitiesByProduct).catch((error) => {
+      void saveActivityProductSelections(activityScopeKey, selectedActivitiesByProduct).catch((error) => {
         console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
       })
-      syncActivitySelectionsInCache(activityId, selectedActivitiesByProduct)
+      syncActivitySelectionsInCache(activityScopeKey, selectedActivitiesByProduct)
     }, 200)
 
     return () => {
@@ -584,8 +902,10 @@ export function ProductList({ atividade }: ProductListProps) {
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
     const productKey = getProdutoAtividadeKey(produto)
-    const selectedValue = selectedActivitiesByProduct[productKey]
-    const value = selectedValue ?? produto.idwfatividaderealizada
+    const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+    const value = hasLocalSelection
+      ? (selectedActivitiesByProduct[productKey] ?? null)
+      : (produto.idwfatividaderealizada ?? null)
     return value !== null
   }, [selectedActivitiesByProduct])
 
@@ -659,7 +979,8 @@ export function ProductList({ atividade }: ProductListProps) {
         return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(String(searchValue ?? '').toLocaleLowerCase('pt-BR'))
       })
 
-    const filtered = showForwardedProducts
+    const shouldShowForwardedProducts = readOnlyPackageView || showForwardedProducts
+    const filtered = shouldShowForwardedProducts
       ? filteredBySearch
       : filteredBySearch.filter((produto) => !isForwardedProduct(produto))
 
@@ -679,6 +1000,7 @@ export function ProductList({ atividade }: ProductListProps) {
     searchField,
     selectedSearchFieldType,
     searchValue,
+    readOnlyPackageView,
     showForwardedProducts,
     isForwardedProduct,
     sortDirection,
@@ -686,6 +1008,10 @@ export function ProductList({ atividade }: ProductListProps) {
   ])
 
   const deferredFilteredAndSortedProducts = useDeferredValue(filteredAndSortedProducts)
+  const exportableFieldKeys = useMemo(
+    () => Array.from(new Set([...ALWAYS_VISIBLE_FIELDS, ...visibleFields])),
+    [visibleFields],
+  )
 
   const productPages = useMemo(() => {
     if (deferredFilteredAndSortedProducts.length === 0) {
@@ -728,11 +1054,157 @@ export function ProductList({ atividade }: ProductListProps) {
       if (!produto) {
         return false
       }
-      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+      const selectedValue = hasLocalSelection
+        ? (selectedActivitiesByProduct[productKey] ?? null)
+        : (produto.idwfatividaderealizada ?? null)
       return selectedValue !== null
     }),
     [products, selectedActivitiesByProduct, selectedProductKeys],
   )
+  const optionGroupTemplate = useCallback((group: GroupedFieldOptions) => {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+        <FontAwesomeIcon icon={group.icon} />
+        <span>{group.label}</span>
+      </span>
+    )
+  }, [])
+
+  const handleExportFilteredProductsToExcel = useCallback(() => {
+    if (filteredAndSortedProducts.length === 0) {
+      toastRef.current?.show({
+        severity: 'warn',
+        summary: 'Nada para exportar',
+        detail: 'Nao ha produtos filtrados para exportar.',
+      })
+      return
+    }
+
+    try {
+      const exportHeaders = exportableFieldKeys.map((field) => fieldConfigByKey[field]?.label ?? field)
+      const exportRows = filteredAndSortedProducts.map((produto) => {
+        const productKey = getProdutoAtividadeKey(produto)
+        const specialValues = specialFieldValuesByProduct[productKey] ?? {}
+        return exportableFieldKeys.map((field) => {
+          const fieldConfig = fieldConfigByKey[field]
+          const hasSpecialValue = Object.prototype.hasOwnProperty.call(specialValues, field)
+          const fieldValue = hasSpecialValue ? specialValues[field] : getProdutoFieldValue(produto, field)
+          return resolveExcelCellValue(fieldConfig, fieldValue)
+        })
+      })
+
+      const worksheet = XLSX.utils.aoa_to_sheet([exportHeaders, ...exportRows], { cellDates: true })
+      const worksheetRange = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1')
+      worksheet['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: 0, c: 0 },
+          e: { r: worksheetRange.e.r, c: worksheetRange.e.c },
+        }),
+      }
+      ;(worksheet as XLSX.WorkSheet & { '!freeze'?: unknown })['!freeze'] = {
+        xSplit: 0,
+        ySplit: 1,
+        topLeftCell: 'A2',
+        activePane: 'bottomLeft',
+        state: 'frozen',
+      }
+      worksheet['!cols'] = exportableFieldKeys.map((field, index) => {
+        if (field === 'produto') {
+          return { wch: 40 }
+        }
+        return {
+          wch: Math.max(14, Math.min(28, exportHeaders[index]?.length + 6 || 16)),
+        }
+      })
+
+      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
+        exportableFieldKeys.forEach((field, columnIndex) => {
+          const fieldType = String(fieldConfigByKey[field]?.type ?? '').toLowerCase()
+          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
+          const cell = worksheet[cellRef] as (XLSX.CellObject & { z?: string }) | undefined
+          if (!cell) {
+            return
+          }
+
+          if (fieldType === 'date' && cell.v instanceof Date) {
+            cell.z = 'dd/mm/yyyy'
+            return
+          }
+
+          if (field === 'idproduto' && typeof cell.v === 'number') {
+            cell.v = Math.trunc(cell.v)
+            cell.z = '#,##0'
+            return
+          }
+
+          if ((fieldType === 'inputnumber' || fieldType === 'number') && typeof cell.v === 'number') {
+            cell.z = '#,##0.00'
+            return
+          }
+
+          if ((fieldType === 'currency' || fieldType === 'money') && typeof cell.v === 'number') {
+            cell.z = 'R$ #,##0.00'
+          }
+        })
+      }
+
+      for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
+        const headerRef = XLSX.utils.encode_cell({ r: 0, c: columnIndex })
+        const headerCell = worksheet[headerRef]
+        if (!headerCell) {
+          continue
+        }
+        ;(headerCell as XLSX.CellObject & { s?: unknown }).s = {
+          fill: {
+            patternType: 'solid',
+            fgColor: { rgb: '1F4E78' },
+          },
+          font: {
+            bold: true,
+            color: { rgb: 'FFFFFF' },
+          },
+          alignment: {
+            horizontal: 'center',
+            vertical: 'center',
+          },
+        }
+      }
+
+      for (let rowIndex = 1; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
+        const stripeColor = rowIndex % 2 === 0 ? 'E8F1FB' : 'FFFFFF'
+        for (let columnIndex = 0; columnIndex <= worksheetRange.e.c; columnIndex += 1) {
+          const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })
+          const cell = worksheet[cellRef]
+          if (!cell) {
+            continue
+          }
+          ;(cell as XLSX.CellObject & { s?: unknown }).s = {
+            ...((cell as XLSX.CellObject & { s?: Record<string, unknown> }).s ?? {}),
+            fill: {
+              patternType: 'solid',
+              fgColor: { rgb: stripeColor },
+            },
+          }
+        }
+      }
+
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos')
+
+      const activityLabel = sanitizeFileNameSegment(atividade?.wfatividade ?? 'atividade')
+      const dateSuffix = new Date().toISOString().replace(/[:.]/g, '-')
+      XLSX.writeFile(workbook, `produtos-${activityLabel || 'atividade'}-${dateSuffix}.xlsx`)
+    } catch (error) {
+      console.error('[ProductList] Falha ao exportar produtos para Excel.', error)
+      toastRef.current?.show({
+        severity: 'error',
+        summary: 'Falha na exportacao',
+        detail: 'Nao foi possivel gerar o arquivo Excel dos produtos filtrados.',
+        life: 7000,
+      })
+    }
+  }, [atividade, exportableFieldKeys, fieldConfigByKey, filteredAndSortedProducts, specialFieldValuesByProduct])
 
   const bulkActivityOptions = useMemo(
     () => (
@@ -839,41 +1311,51 @@ export function ProductList({ atividade }: ProductListProps) {
   const hasEncaminhamentosToSubmit = useMemo(
     () => products.some((produto) => {
       const productKey = getProdutoAtividadeKey(produto)
-      const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
+      const hasLocalSelection = Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+      const selectedValue = hasLocalSelection
+        ? (selectedActivitiesByProduct[productKey] ?? null)
+        : (produto.idwfatividaderealizada ?? null)
       return selectedValue !== null
     }),
     [products, selectedActivitiesByProduct],
   )
 
+  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: string | number | boolean | null) => {
+    setSpecialFieldValuesByProduct((current) => ({
+      ...current,
+      [productKey]: {
+        ...(current[productKey] ?? {}),
+        [field]: value,
+      },
+    }))
+  }, [])
+
   const handleSubmitEncaminhamentos = useCallback(async () => {
+    if (readOnlyPackageView) {
+      return
+    }
+
     if (!atividade || isSubmittingEncaminhamentos) {
       return
     }
 
-    const encaminhamentos = products
-      .map((produto) => {
+    const queueItem = createActivitySyncQueueItem({
+      atividade,
+      source: 'product-list',
+      selectedActivitiesByProduct,
+      products: products.map((produto) => {
         const productKey = getProdutoAtividadeKey(produto)
-        const selectedValue = selectedActivitiesByProduct[productKey] ?? produto.idwfatividaderealizada
-
-        if (selectedValue === null) {
-          return null
-        }
-
+        const specialValues = specialFieldValuesByProduct[productKey] ?? {}
         return {
-          idwfocorrencia: produto.idwfocorrencia,
-          idwfatividadeencaminhamento: selectedValue,
-          observacao: produto.observacao ?? '',
-          idwffilatrabalho: produto.idwffilatrabalho,
+          ...produto,
+          datavalidade: typeof specialValues.datavalidade === 'string' ? specialValues.datavalidade : (produto.datavalidade ?? ''),
+          qtdproduzido: typeof specialValues.qtdproduzido === 'number' ? specialValues.qtdproduzido : (produto.qtdproduzido ?? null),
+          qtdestoquecorreta: typeof specialValues.qtdestoquecorreta === 'number' ? specialValues.qtdestoquecorreta : (produto.qtdestoquecorreta ?? null),
         }
-      })
-      .filter((value): value is {
-        idwfocorrencia: number
-        idwfatividadeencaminhamento: number
-        observacao: string
-        idwffilatrabalho: number
-      } => value !== null)
+      }),
+    })
 
-    if (encaminhamentos.length === 0) {
+    if (!queueItem) {
       toastRef.current?.show({
         severity: 'warn',
         summary: 'Nada para enviar',
@@ -882,45 +1364,48 @@ export function ProductList({ atividade }: ProductListProps) {
       return
     }
 
-    const idwfprocesso = atividade.idwfprocesso
+    const submittedProductKeys = getQueueItemProductKeys(queueItem)
+    const activityScopeKey = getActivityScopeKey(atividade)
 
     try {
       setIsSubmittingEncaminhamentos(true)
-      const response = await updateEncaminhamentos({
-        idwfprocesso,
-        encaminhamentos,
-      })
-
-      const responseText = typeof response === 'string' ? response : JSON.stringify(response ?? '')
-      const hasError = responseText.toLowerCase().includes('erro')
-
-      if (hasError) {
-        toastRef.current?.show({
-          severity: 'error',
-          summary: 'Falha ao enviar',
-          detail: responseText || 'O servidor retornou erro ao enviar os encaminhamentos.',
-          life: 7000,
+      await enqueueForSync(queueItem)
+      removeActivityProductsFromCache(activityScopeKey, submittedProductKeys)
+      await removeActivityProductSelections(activityScopeKey)
+      setLocallySyncedProductKeys((current) => {
+        const next = new Set(current)
+        submittedProductKeys.forEach((key) => {
+          next.add(key)
         })
-        return
-      }
+        return next
+      })
+      setSelectedActivitiesByProduct((current) => {
+        const next = { ...current }
+        submittedProductKeys.forEach((key) => {
+          delete next[key]
+        })
+        return next
+      })
+      setSelectedProductKeys((current) => current.filter((key) => !submittedProductKeys.has(key)))
 
       toastRef.current?.show({
         severity: 'success',
-        summary: 'Enviado com sucesso',
-        detail: 'Os encaminhamentos da atividade foram enviados.',
+        summary: 'Envio enfileirado',
+        detail: 'Os encaminhamentos foram adicionados a fila e serao processados em background.',
       })
     } catch (error) {
-      console.error('[ProductList] Falha ao enviar encaminhamentos.', error)
+      console.error('[ProductList] Falha ao enfileirar encaminhamentos.', error)
+      const errorMessage = error instanceof Error ? error.message : 'Nao foi possivel enfileirar os encaminhamentos.'
       toastRef.current?.show({
         severity: 'error',
-        summary: 'Falha ao enviar',
-        detail: error instanceof Error ? error.message : 'Não foi possível enviar os encaminhamentos.',
+        summary: 'Falha ao enfileirar',
+        detail: errorMessage,
         life: 7000,
       })
     } finally {
       setIsSubmittingEncaminhamentos(false)
     }
-  }, [atividade, isSubmittingEncaminhamentos, products, selectedActivitiesByProduct])
+  }, [atividade, enqueueForSync, isSubmittingEncaminhamentos, products, readOnlyPackageView, selectedActivitiesByProduct, specialFieldValuesByProduct])
 
   const header = () => (
     <div className="product-list-header">
@@ -940,6 +1425,7 @@ export function ProductList({ atividade }: ProductListProps) {
                 if (next) {
                   setShowMarketFilters(false)
                   setShowBulkControls(false)
+                  setShowExportControls(false)
                 }
 
                 return next
@@ -960,26 +1446,51 @@ export function ProductList({ atividade }: ProductListProps) {
                 if (next) {
                   setShowControls(false)
                   setShowBulkControls(false)
+                  setShowExportControls(false)
                 }
 
                 return next
               })
             }
           />
+          {!readOnlyPackageView && (
+            <Button
+              type="button"
+              icon={<FontAwesomeIcon icon={faPersonWalking} />}
+              text
+              rounded
+              className={classNames({ 'product-control-toggle-active': showBulkControls })}
+              aria-label={showBulkControls ? 'Fechar ações em lote' : 'Abrir ações em lote'}
+              onClick={() =>
+                setShowBulkControls((current) => {
+                  const next = !current
+
+                  if (next) {
+                    setShowControls(false)
+                    setShowMarketFilters(false)
+                  setShowExportControls(false)
+                  }
+
+                  return next
+                })
+              }
+            />
+          )}
           <Button
             type="button"
-            icon={<FontAwesomeIcon icon={faPersonWalking} />}
+            icon={<FontAwesomeIcon icon={faShareFromSquare} />}
             text
             rounded
-            className={classNames({ 'product-control-toggle-active': showBulkControls })}
-            aria-label={showBulkControls ? 'Fechar ações em lote' : 'Abrir ações em lote'}
+            className={classNames({ 'product-control-toggle-active': showExportControls })}
+            aria-label={showExportControls ? 'Fechar opções de exportação' : 'Abrir opções de exportação'}
             onClick={() =>
-              setShowBulkControls((current) => {
+              setShowExportControls((current) => {
                 const next = !current
 
                 if (next) {
                   setShowControls(false)
                   setShowMarketFilters(false)
+                  setShowBulkControls(false)
                 }
 
                 return next
@@ -987,6 +1498,11 @@ export function ProductList({ atividade }: ProductListProps) {
             }
           />
         </div>
+        {readOnlyPackageView && (
+          <>
+            <span className="product-list-view-mode"><FontAwesomeIcon icon={faEye} /> Modo visualização</span>
+          </>
+        )}
         <DataViewLayoutOptions
           layout={layout}
           onChange={(event) => setLayout(event.value as 'list' | 'grid')}
@@ -995,70 +1511,85 @@ export function ProductList({ atividade }: ProductListProps) {
         />
       </div>
       {showBulkControls && (
-        <div className="product-list-control-panel">
-
-          <div className="product-display-config">
-            <InputSwitch
-              inputId="product-show-forwarded"
-              className="product-show-forwarded-switch"
-              checked={showForwardedProducts}
-              onChange={(event: InputSwitchChangeEvent) => setShowForwardedProducts(Boolean(event.value))}
-            />
-            <label htmlFor="product-show-forwarded">Encaminhados</label>
-          </div>
-          <div className="product-bulk-selection-row">
-            <span>Selecionar</span>
-            <Checkbox
-              inputId="product-select-page"
-              checked={areAllPagedProductsSelected}
-              onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
-            />
-            <label htmlFor="product-select-page">Página</label>
-            <Checkbox
-              inputId="product-select-all"
-              checked={areAllFilteredProductsSelected}
-              onChange={(event: CheckboxChangeEvent) => toggleAllSelection(Boolean(event.checked))}
-            />
-            <label htmlFor="product-select-all">Tudo</label>
-            <div className="product-bulk-count">
-              {selectedProductKeys.length > 0 && (
-                <Button
-                  type="button"
-                  icon={<FontAwesomeIcon icon={faBroom} />}
-                  text
-                  rounded
-                  aria-label="Limpar selecionados"
-                  onClick={clearSelectedProducts}
-                />
-              )}
-              <span >{selectedProductKeys.length} selecionado(s)</span>
+        !readOnlyPackageView && (
+          <div className="product-list-control-panel">
+            <div className="product-display-config">
+              <InputSwitch
+                inputId="product-show-forwarded"
+                className="product-show-forwarded-switch"
+                checked={showForwardedProducts}
+                onChange={(event: InputSwitchChangeEvent) => setShowForwardedProducts(Boolean(event.value))}
+              />
+              <label htmlFor="product-show-forwarded">Encaminhados</label>
+            </div>
+            <div className="product-bulk-selection-row">
+              <span>Selecionar</span>
+              <Checkbox
+                inputId="product-select-page"
+                checked={areAllPagedProductsSelected}
+                onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
+              />
+              <label htmlFor="product-select-page">Página</label>
+              <Checkbox
+                inputId="product-select-all"
+                checked={areAllFilteredProductsSelected}
+                onChange={(event: CheckboxChangeEvent) => toggleAllSelection(Boolean(event.checked))}
+              />
+              <label htmlFor="product-select-all">Tudo</label>
+              <div className="product-bulk-count">
+                {selectedProductKeys.length > 0 && (
+                  <Button
+                    type="button"
+                    icon={<FontAwesomeIcon icon={faBroom} />}
+                    text
+                    rounded
+                    aria-label="Limpar selecionados"
+                    onClick={clearSelectedProducts}
+                  />
+                )}
+                <span >{selectedProductKeys.length} selecionado(s)</span>
+              </div>
+            </div>
+            <div className="product-bulk-actions-row">
+              <Dropdown
+                ref={bulkActivityDropdownRef}
+                inputId="product-bulk-activity"
+                value={bulkActivityId}
+                onChange={(event: DropdownChangeEvent) => {
+                  const value = event.value
+                  if (value === NONE_ACTIVITY_OPTION_VALUE) {
+                    setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
+                    return
+                  }
+                  setBulkActivityId(toDropdownActivityId(value))
+                }}
+                options={bulkActivityOptions}
+                optionLabel="label"
+                optionValue="value"
+                placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
+                className="product-bulk-dropdown"
+                disabled={bulkActivityOptions.length === 0}
+                showClear
+              />
+              <Button
+                type="button"
+                label="Aplicar aos selecionados"
+                onClick={applyBulkActivityToSelected}
+                disabled={selectedProductKeys.length === 0 || bulkActivityId === null}
+              />
             </div>
           </div>
+        )
+      )}
+      {showExportControls && (
+        <div className="product-list-control-panel">
           <div className="product-bulk-actions-row">
-            <Dropdown
-              inputId="product-bulk-activity"
-              value={bulkActivityId}
-              onChange={(event: DropdownChangeEvent) => {
-                const value = event.value
-                if (value === NONE_ACTIVITY_OPTION_VALUE) {
-                  setBulkActivityId(NONE_ACTIVITY_OPTION_VALUE)
-                  return
-                }
-                setBulkActivityId(toDropdownActivityId(value))
-              }}
-              options={bulkActivityOptions}
-              optionLabel="label"
-              optionValue="value"
-              placeholder={activityOptions.length > 0 ? 'Selecionar atividade para os marcados' : 'Sem atividades disponíveis'}
-              className="product-bulk-dropdown"
-              disabled={bulkActivityOptions.length === 0}
-              showClear
-            />
             <Button
               type="button"
-              label="Aplicar aos selecionados"
-              onClick={applyBulkActivityToSelected}
-              disabled={selectedProductKeys.length === 0 || bulkActivityId === null}
+              label="Download em Excel"
+              icon={<FontAwesomeIcon icon={faFileExcel} />}
+              onClick={handleExportFilteredProductsToExcel}
+              disabled={filteredAndSortedProducts.length === 0}
             />
           </div>
         </div>
@@ -1068,12 +1599,16 @@ export function ProductList({ atividade }: ProductListProps) {
           <div className="product-field-select">
             <span className="product-control-label">Campos visíveis</span>
             <MultiSelect
+              ref={visibleFieldsMultiSelectRef}
               inputId="product-visible-fields"
               value={visibleFields}
               onChange={(event: MultiSelectChangeEvent) => setVisibleFields(event.value as string[])}
-              options={fieldOptions}
+              options={groupedFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               filter
               maxSelectedLabels={2}
               selectedItemsLabel="{0} selecionados"
@@ -1082,13 +1617,17 @@ export function ProductList({ atividade }: ProductListProps) {
           <div className="product-search-row">
             <span className="product-control-label">Buscar em</span>
             <Dropdown
+              ref={searchFieldDropdownRef}
               inputId="product-search-field"
               filter
               value={searchField}
               onChange={(event: DropdownChangeEvent) => setSearchField(event.value as string)}
-              options={searchableFieldOptions}
+              options={groupedSearchableFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               className="product-search-column"
               placeholder="Selecione a coluna"
             />
@@ -1111,6 +1650,7 @@ export function ProductList({ atividade }: ProductListProps) {
             )}
             {selectedSearchFieldType === 'date' && (
               <Calendar
+                ref={searchDateCalendarRef}
                 value={searchValue instanceof Date ? searchValue : null}
                 onChange={(event) => setSearchValue(event.value instanceof Date ? event.value : null)}
                 dateFormat="yy-mm-dd"
@@ -1121,6 +1661,7 @@ export function ProductList({ atividade }: ProductListProps) {
             )}
             {selectedSearchFieldType === 'select' && (
               <Dropdown
+                ref={searchSelectDropdownRef}
                 value={typeof searchValue === 'string' ? searchValue : null}
                 onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as string | null) ?? null)}
                 options={searchSelectOptions}
@@ -1134,6 +1675,7 @@ export function ProductList({ atividade }: ProductListProps) {
             )}
             {selectedSearchFieldType === 'multipleSelect' && (
               <MultiSelect
+                ref={searchMultipleSelectRef}
                 value={Array.isArray(searchValue) ? searchValue : []}
                 onChange={(event: MultiSelectChangeEvent) => setSearchValue((event.value as string[]) ?? [])}
                 options={searchSelectOptions}
@@ -1147,6 +1689,7 @@ export function ProductList({ atividade }: ProductListProps) {
             )}
             {selectedSearchFieldType === 'boolean' && (
               <Dropdown
+                ref={searchBooleanDropdownRef}
                 value={typeof searchValue === 'boolean' ? searchValue : null}
                 onChange={(event: DropdownChangeEvent) => setSearchValue((event.value as boolean | null) ?? null)}
                 options={[
@@ -1164,13 +1707,17 @@ export function ProductList({ atividade }: ProductListProps) {
           <div className="product-sort-row">
             <span className="product-control-label">Ordenar por</span>
             <Dropdown
+              ref={sortFieldDropdownRef}
               inputId="product-sort-field"
               filter
               value={sortField}
               onChange={(event: DropdownChangeEvent) => setSortField(event.value as string)}
-              options={orderableFieldOptions}
+              options={groupedOrderableFieldOptions}
               optionLabel="label"
               optionValue="value"
+              optionGroupLabel="label"
+              optionGroupChildren="items"
+              optionGroupTemplate={optionGroupTemplate}
               className="product-sort-column"
               placeholder="Selecione a coluna"
             />
@@ -1191,6 +1738,9 @@ export function ProductList({ atividade }: ProductListProps) {
             {MARKET_FIELD_KEYS.map((field) => (
               <Dropdown
                 key={field}
+                ref={(element) => {
+                  setMarketFilterDropdownRef(field, element)
+                }}
                 inputId={`product-market-${field}`}
                 filter
                 showClear
@@ -1241,12 +1791,19 @@ export function ProductList({ atividade }: ProductListProps) {
             index={index}
             isSelected={selectedProductKeysSet.has(productKey)}
             isForwarded={isForwardedProduct(produto)}
-            selectedActivity={selectedActivitiesByProduct[productKey] ?? null}
+            selectedActivity={
+              Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+                ? (selectedActivitiesByProduct[productKey] ?? null)
+                : (produto.idwfatividaderealizada ?? null)
+            }
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
+            specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
+            onSpecialFieldChange={handleSpecialFieldChange}
             onToggleSelect={toggleProductSelection}
             onActivityChange={changeProductActivity}
+            readOnly={readOnlyPackageView}
           />
         )
       })}
@@ -1254,10 +1811,13 @@ export function ProductList({ atividade }: ProductListProps) {
   ), [
     activityOptions,
     selectedActivitiesByProduct,
+    specialFieldValuesByProduct,
     selectedProductKeysSet,
     isForwardedProduct,
     toggleProductSelection,
     changeProductActivity,
+    handleSpecialFieldChange,
+    readOnlyPackageView,
     cardVisibleFields,
     fieldConfigByKey,
   ])
@@ -1284,30 +1844,35 @@ export function ProductList({ atividade }: ProductListProps) {
           <>
             <span className="product-panel-subtitle"><FontAwesomeIcon icon={faBuilding} />{atividade.empresa} | {atividade.wfprocesso}</span>
             <h2 className="product-panel-title"><FontAwesomeIcon icon={faPersonWalking} />{atividade.wfatividade}</h2>
-            <div className="product-panel-submit-row">
-              <WorkflowProgressBar
-                completed={forwardedProductsCount}
-                total={products.length}
-                itemLabel="produtos encaminhados"
-                className="product-progress-overview"
-              >
-                <Button
-                  type="button"
-                  label="Enviar"
-                  icon="pi pi-send"
-                  className="app-btn primary"
-                  onClick={() => {
-                    void handleSubmitEncaminhamentos()
-                  }}
-                  loading={isSubmittingEncaminhamentos}
-                  disabled={!hasEncaminhamentosToSubmit}
-                />
-              </WorkflowProgressBar>
-            </div>
+            {!readOnlyPackageView && (
+              <div className="product-panel-submit-row">
+                <WorkflowProgressBar
+                  completed={forwardedProductsCount}
+                  total={products.length}
+                  itemLabel="produtos encaminhados"
+                  className="product-progress-overview"
+                >
+                  <Button
+                    type="button"
+                    label="Enviar"
+                    icon="pi pi-send"
+                    className="app-btn primary"
+                    onClick={() => {
+                      void handleSubmitEncaminhamentos()
+                    }}
+                    loading={isSubmittingEncaminhamentos}
+                    disabled={!hasEncaminhamentosToSubmit}
+                  />
+                </WorkflowProgressBar>
+              </div>
+            )}
             <div
-              className="p-dataview p-component product-dataview"
+              className={classNames(
+                'p-dataview p-component product-dataview product-dataview-sticky',
+                { 'is-stuck': isStickyHeaderStuck },
+              )}
             >
-              <div className="p-dataview-header">
+              <div className="p-dataview-header" ref={stickyHeaderRef}>
                 {header()}
               </div>
               <div className="p-dataview-content">

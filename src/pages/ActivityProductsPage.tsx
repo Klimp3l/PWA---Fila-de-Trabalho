@@ -10,14 +10,18 @@ import type { AtividadeComProdutos } from '../types/workflow'
 
 interface ActivityProductsPageLocationState {
   selectedActivity?: AtividadeComProdutos | null
+  readOnlyPackageView?: boolean
+  packageProductKeys?: string[]
 }
 
 export function ActivityProductsPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { activityId } = useParams()
+  const { activityId, companyId } = useParams()
   const locationState = (location.state ?? null) as ActivityProductsPageLocationState | null
   const selectedActivityFromNavigation = locationState?.selectedActivity ?? null
+  const readOnlyPackageView = locationState?.readOnlyPackageView === true
+  const packageProductKeys = locationState?.packageProductKeys ?? []
   const shouldLoadAtividades = selectedActivityFromNavigation === null
   const { atividades, isLoading } = useAtividadesWithOnlineRefresh('ActivityProductsPage', {
     enabled: shouldLoadAtividades,
@@ -32,11 +36,21 @@ export function ActivityProductsPage() {
     return Number.isFinite(parsed) ? parsed : null
   }, [activityId])
 
+  const companyIdAsNumber = useMemo(() => {
+    if (!companyId) {
+      return null
+    }
+
+    const parsed = Number(companyId)
+    return Number.isFinite(parsed) ? parsed : null
+  }, [companyId])
+
   const selectedActivity = useMemo(() => {
     if (
       selectedActivityFromNavigation
       && activityIdAsNumber !== null
       && selectedActivityFromNavigation.idwfatividade === activityIdAsNumber
+      && (companyIdAsNumber === null || selectedActivityFromNavigation.idempresa === companyIdAsNumber)
     ) {
       return selectedActivityFromNavigation
     }
@@ -45,8 +59,18 @@ export function ActivityProductsPage() {
       return null
     }
 
-    return atividades.find((atividade) => atividade.idwfatividade === activityIdAsNumber) ?? null
-  }, [activityIdAsNumber, atividades, selectedActivityFromNavigation])
+    return atividades.find((atividade) => {
+      if (atividade.idwfatividade !== activityIdAsNumber) {
+        return false
+      }
+
+      if (companyIdAsNumber === null) {
+        return true
+      }
+
+      return atividade.idempresa === companyIdAsNumber
+    }) ?? null
+  }, [activityIdAsNumber, companyIdAsNumber, atividades, selectedActivityFromNavigation])
 
   if (isLoading) {
     return (
@@ -90,7 +114,11 @@ export function ActivityProductsPage() {
           <span>Voltar para minhas atividades</span>
         </Button>
       </div>
-      <ProductList atividade={selectedActivity} />
+      <ProductList
+        atividade={selectedActivity}
+        readOnlyPackageView={readOnlyPackageView}
+        packageProductKeys={packageProductKeys}
+      />
     </section>
   )
 }
