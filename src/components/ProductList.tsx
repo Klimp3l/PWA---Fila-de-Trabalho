@@ -748,6 +748,11 @@ export function ProductList({ atividade }: ProductListProps) {
     [currentPageProducts],
   )
 
+  const filteredProductKeys = useMemo(
+    () => deferredFilteredAndSortedProducts.map((produto) => getProdutoAtividadeKey(produto)),
+    [deferredFilteredAndSortedProducts],
+  )
+
   const selectedProductKeysSet = useMemo(
     () => new Set(selectedProductKeys),
     [selectedProductKeys],
@@ -755,6 +760,9 @@ export function ProductList({ atividade }: ProductListProps) {
 
   const areAllPagedProductsSelected = pagedProductKeys.length > 0
     && pagedProductKeys.every((productKey) => selectedProductKeysSet.has(productKey))
+
+  const areAllFilteredProductsSelected = filteredProductKeys.length > 0
+    && filteredProductKeys.every((productKey) => selectedProductKeysSet.has(productKey))
 
   const toggleProductSelection = useCallback((productKey: string, checked: boolean) => {
     setSelectedProductKeys((current) => {
@@ -786,6 +794,19 @@ export function ProductList({ atividade }: ProductListProps) {
 
       const pageKeysSet = new Set(pagedProductKeys)
       return current.filter((currentKey) => !pageKeysSet.has(currentKey))
+    })
+  }
+
+  const toggleAllSelection = (checked: boolean) => {
+    setSelectedProductKeys((current) => {
+      if (checked) {
+        const next = new Set(current)
+        filteredProductKeys.forEach((productKey) => next.add(productKey))
+        return Array.from(next)
+      }
+
+      const filteredKeysSet = new Set(filteredProductKeys)
+      return current.filter((currentKey) => !filteredKeysSet.has(currentKey))
     })
   }
 
@@ -986,12 +1007,19 @@ export function ProductList({ atividade }: ProductListProps) {
             <label htmlFor="product-show-forwarded">Encaminhados</label>
           </div>
           <div className="product-bulk-selection-row">
+            <span>Selecionar</span>
             <Checkbox
               inputId="product-select-page"
               checked={areAllPagedProductsSelected}
               onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
             />
-            <label htmlFor="product-select-page">Selecionar página</label>
+            <label htmlFor="product-select-page">Página</label>
+            <Checkbox
+              inputId="product-select-all"
+              checked={areAllFilteredProductsSelected}
+              onChange={(event: CheckboxChangeEvent) => toggleAllSelection(Boolean(event.checked))}
+            />
+            <label htmlFor="product-select-all">Tudo</label>
             <div className="product-bulk-count">
               {selectedProductKeys.length > 0 && (
                 <Button
