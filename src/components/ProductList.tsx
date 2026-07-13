@@ -67,6 +67,7 @@ interface ProductCardItemProps {
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
   onToggleSelect: (productKey: string, checked: boolean) => void
+  onActivityChange: (productKey: string, activityId: number | null) => void
 }
 
 const ProductCardItem = memo(function ProductCardItem({
@@ -80,6 +81,7 @@ const ProductCardItem = memo(function ProductCardItem({
   visibleFields,
   fieldConfigByKey,
   onToggleSelect,
+  onActivityChange,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
 
@@ -92,6 +94,35 @@ const ProductCardItem = memo(function ProductCardItem({
 
     onToggleSelect(productKey, !isSelected)
   }
+
+  const activitySelector = (
+    <div
+      className={classNames('product-card-activity', {
+        'product-card-activity-list': layout === 'list',
+        'product-card-activity-grid': layout === 'grid',
+      })}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <label htmlFor={`product-activity-${productKey}`}>
+        <FontAwesomeIcon icon={faPersonWalking} />
+        Atividade realizada
+      </label>
+      <Dropdown
+        inputId={`product-activity-${productKey}`}
+        value={selectedActivity}
+        onChange={(event: DropdownChangeEvent) => {
+          onActivityChange(productKey, toDropdownActivityId(event.value))
+        }}
+        options={activityOptions}
+        optionLabel="label"
+        optionValue="value"
+        placeholder={activityOptions.length > 0 ? 'Selecionar atividade' : 'Sem atividades disponíveis'}
+        className="product-card-activity-dropdown"
+        disabled={activityOptions.length === 0}
+        showClear
+      />
+    </div>
+  )
 
   return (
     <div
@@ -114,24 +145,14 @@ const ProductCardItem = memo(function ProductCardItem({
             'product-card-content-grid': layout === 'grid',
           })}
         >
-          {layout === 'list' && selectedActivity && (
-            <p>
-              <FontAwesomeIcon icon={faPersonWalking} />
-              {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
-            </p>
-          )}
+          {layout === 'list' && activitySelector}
           <div
             className={classNames('product-card-main', {
               'product-card-main-list': layout === 'list',
               'product-card-main-grid': layout === 'grid',
             })}
           >
-            {layout === 'grid' && selectedActivity && (
-              <p>
-                <FontAwesomeIcon icon={faPersonWalking} />
-                {activityOptions.find((option) => option.value === selectedActivity)?.label || '-'}
-              </p>
-            )}
+            {layout === 'grid' && activitySelector}
             <div className="product-image-wrap">
               <img
                 className="product-image"
@@ -748,6 +769,13 @@ export function ProductList({ atividade }: ProductListProps) {
     })
   }, [])
 
+  const changeProductActivity = useCallback((productKey: string, activityId: number | null) => {
+    setSelectedActivitiesByProduct((current) => ({
+      ...current,
+      [productKey]: activityId,
+    }))
+  }, [])
+
   const togglePageSelection = (checked: boolean) => {
     setSelectedProductKeys((current) => {
       if (checked) {
@@ -1190,6 +1218,7 @@ export function ProductList({ atividade }: ProductListProps) {
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
             onToggleSelect={toggleProductSelection}
+            onActivityChange={changeProductActivity}
           />
         )
       })}
@@ -1200,6 +1229,7 @@ export function ProductList({ atividade }: ProductListProps) {
     selectedProductKeysSet,
     isForwardedProduct,
     toggleProductSelection,
+    changeProductActivity,
     cardVisibleFields,
     fieldConfigByKey,
   ])

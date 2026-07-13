@@ -650,6 +650,27 @@
   align-items: center;
 }
 
+.product-card-activity {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  cursor: default;
+}
+
+.product-card-activity label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wfg-text-soft);
+  font-size: 0.85rem;
+}
+
+.product-card-activity-dropdown {
+  width: 100%;
+  min-width: 0;
+}
+
 .product-card-main-grid {
   grid-template-columns: 1fr;
   justify-items: center;
