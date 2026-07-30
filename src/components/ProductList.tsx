@@ -1,7 +1,6 @@
 import { memo, type MouseEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Card } from 'primereact/card'
-import { Carousel } from 'primereact/carousel'
 import { Calendar } from 'primereact/calendar'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { DataViewLayoutOptions } from 'primereact/dataview'
@@ -49,7 +48,6 @@ import {
 import {
   CARD_INTERACTIVE_SELECTOR,
   DEFAULT_PRODUCT_IMAGE,
-  DEFAULT_ROWS_PER_PAGE,
   ALWAYS_VISIBLE_FIELDS,
   MARKET_FIELD_INDEX,
   MARKET_FIELD_LABELS,
@@ -502,8 +500,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([])
   const [bulkActivityId, setBulkActivityId] = useState<number | typeof NONE_ACTIVITY_OPTION_VALUE | null>(null)
   const [showForwardedProducts, setShowForwardedProducts] = useState(true)
-  const [activePage, setActivePage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE)
   const [isSubmittingEncaminhamentos, setIsSubmittingEncaminhamentos] = useState(false)
   const [locallySyncedProductKeys, setLocallySyncedProductKeys] = useState<Set<string>>(new Set())
   const { enqueueForSync } = useActivitySyncQueue()
@@ -1138,33 +1134,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
   const exportableFieldKeys = exportFields
 
-  const productPages = useMemo(() => {
-    if (deferredFilteredAndSortedProducts.length === 0) {
-      return []
-    }
-
-    const pages: ProdutoAtividade[][] = []
-    for (let index = 0; index < deferredFilteredAndSortedProducts.length; index += rowsPerPage) {
-      pages.push(deferredFilteredAndSortedProducts.slice(index, index + rowsPerPage))
-    }
-
-    return pages
-  }, [deferredFilteredAndSortedProducts, rowsPerPage])
-
-  const currentPageProducts = useMemo(
-    () => productPages[activePage] ?? [],
-    [activePage, productPages],
-  )
-
-  useEffect(() => {
-    setActivePage((current) => {
-      if (productPages.length === 0) {
-        return 0
-      }
-      return Math.min(current, productPages.length - 1)
-    })
-  }, [productPages.length])
-
   const activityOptions = useMemo(
     () => activityEligibleItems.map((atividadeElegivel) => ({
       label: getAtividadeLabel(atividadeElegivel),
@@ -1340,11 +1309,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [activityOptions, hasForwardedSelectedProducts],
   )
 
-  const pagedProductKeys = useMemo(
-    () => currentPageProducts.map((produto) => getProdutoAtividadeKey(produto)),
-    [currentPageProducts],
-  )
-
   const filteredProductKeys = useMemo(
     () => deferredFilteredAndSortedProducts.map((produto) => getProdutoAtividadeKey(produto)),
     [deferredFilteredAndSortedProducts],
@@ -1354,9 +1318,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     () => new Set(selectedProductKeys),
     [selectedProductKeys],
   )
-
-  const areAllPagedProductsSelected = pagedProductKeys.length > 0
-    && pagedProductKeys.every((productKey) => selectedProductKeysSet.has(productKey))
 
   const areAllFilteredProductsSelected = filteredProductKeys.length > 0
     && filteredProductKeys.every((productKey) => selectedProductKeysSet.has(productKey))
@@ -1380,19 +1341,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       [productKey]: activityId,
     }))
   }, [])
-
-  const togglePageSelection = (checked: boolean) => {
-    setSelectedProductKeys((current) => {
-      if (checked) {
-        const next = new Set(current)
-        pagedProductKeys.forEach((productKey) => next.add(productKey))
-        return Array.from(next)
-      }
-
-      const pageKeysSet = new Set(pagedProductKeys)
-      return current.filter((currentKey) => !pageKeysSet.has(currentKey))
-    })
-  }
 
   const toggleAllSelection = (checked: boolean) => {
     setSelectedProductKeys((current) => {
@@ -1648,19 +1596,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               <label htmlFor="product-show-forwarded">Encaminhados</label>
             </div>
             <div className="product-bulk-selection-row">
-              <span>Selecionar</span>
-              <Checkbox
-                inputId="product-select-page"
-                checked={areAllPagedProductsSelected}
-                onChange={(event: CheckboxChangeEvent) => togglePageSelection(Boolean(event.checked))}
-              />
-              <label htmlFor="product-select-page">Página</label>
               <Checkbox
                 inputId="product-select-all"
                 checked={areAllFilteredProductsSelected}
                 onChange={(event: CheckboxChangeEvent) => toggleAllSelection(Boolean(event.checked))}
               />
-              <label htmlFor="product-select-all">Tudo</label>
+              <label htmlFor="product-select-all">Selecionar tudo</label>
               <div className="product-bulk-count">
                 {selectedProductKeys.length > 0 && (
                   <Button
@@ -1672,7 +1613,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                     onClick={clearSelectedProducts}
                   />
                 )}
-                <span >{selectedProductKeys.length} selecionado(s)</span>
+                <span >{selectedProductKeys.length}/{filteredProductKeys.length} selecionado(s)</span>
               </div>
             </div>
             <div className="product-bulk-actions-row">
@@ -1769,7 +1710,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               optionGroupTemplate={optionGroupTemplate}
               filter
               maxSelectedLabels={2}
-              selectedItemsLabel="{0} selecionados"
+              selectedItemsLabel={`{0} selecionados`}
             />
           </div>
           <div className="product-search-row">
@@ -1980,11 +1921,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     fieldConfigByKey,
   ])
 
-  const carouselItemTemplate = useCallback(
-    (items: ProdutoAtividade[]) => renderProductList(items, layout),
-    [layout, renderProductList],
-  )
-
   return (
     <section className="panel product-panel">
       <Toast ref={toastRef} position="top-right" />
@@ -2034,41 +1970,9 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 {header()}
               </div>
               <div className="p-dataview-content">
-                {productPages.length > 0
+                {deferredFilteredAndSortedProducts.length > 0
                   ? (
-                    <>
-                      <div className="product-carousel-page-controls">
-                        <span>
-                          ({filteredAndSortedProducts.length}) Página {productPages.length === 0 ? 0 : activePage + 1} de {Math.max(productPages.length, 1)}
-                        </span>
-                        <Dropdown
-                          value={rowsPerPage}
-                          onChange={(event: DropdownChangeEvent) => {
-                            const nextRows = Number(event.value)
-                            const currentFirstItem = activePage * rowsPerPage
-                            const nextPage = Math.floor(currentFirstItem / nextRows)
-                            setRowsPerPage(nextRows)
-                            setActivePage(nextPage)
-                          }}
-                          options={[4, 6, 8, 12].map((value) => ({ label: `${value}`, value }))}
-                          optionLabel="label"
-                          optionValue="value"
-                          className="product-rows-dropdown"
-                        />
-                      </div>
-                      <Carousel
-                        value={productPages}
-                        page={activePage}
-                        numVisible={1}
-                        numScroll={1}
-                        circular={false}
-                        showIndicators={productPages.length > 1}
-                        showNavigators={productPages.length > 1}
-                        onPageChange={(event) => setActivePage(event.page)}
-                        itemTemplate={carouselItemTemplate}
-                        className="product-pages-carousel"
-                      />
-                    </>
+                    renderProductList(deferredFilteredAndSortedProducts, layout)
                   )
                   : (
                     <div className="p-dataview-emptymessage">
