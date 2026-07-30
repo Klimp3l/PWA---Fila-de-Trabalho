@@ -12,7 +12,7 @@ import { setOfflineDataUserScope } from './services/offlineDb'
 import { removeOldSuccessfulSyncQueueItems } from './services/activityData'
 import { ActivitySyncQueueProvider } from './context/ActivitySyncQueueContext'
 
-type AuthStatus = 'authenticated' | 'unauthenticated'
+type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated'
 const AUTH_STORAGE_KEY = 'odw:is-authenticated'
 const AUTH_USER_LABEL_STORAGE_KEY = 'odw:user-label'
 const TWO_DAYS_IN_MS = 2 * 24 * 60 * 60 * 1000
@@ -26,9 +26,7 @@ const getUserLabelFromStorage = () => {
 }
 
 function App() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus>(() =>
-    localStorage.getItem(AUTH_STORAGE_KEY) === 'true' ? 'authenticated' : 'unauthenticated',
-  )
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
   const [userLabel, setUserLabel] = useState(getUserLabelFromStorage)
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -39,6 +37,30 @@ function App() {
     setAuthStatus('unauthenticated')
     setUserLabel('')
     setAuthError('')
+  }, [])
+
+  const establishAuthenticatedSession = useCallback(async (
+    userInfo: Awaited<ReturnType<typeof getInfoUsuario>>,
+    fallbackUserLabel = '',
+  ) => {
+    if (!userInfo) {
+      throw new Error('Não foi possível identificar o usuário da sessão.')
+    }
+
+    const userIdScope = userInfo.idusuario !== null && userInfo.idusuario !== undefined
+      ? `id:${userInfo.idusuario}`
+      : (userInfo.usuario.trim() || fallbackUserLabel).toLocaleLowerCase('pt-BR')
+    const nextUserLabel = userInfo.nome.trim()
+      ? `${userInfo.nome.trim()} (${userInfo.usuario || fallbackUserLabel})`
+      : (userInfo.usuario.trim() || fallbackUserLabel)
+
+    clearAtividadesCache()
+    setOfflineDataUserScope(userIdScope)
+    await removeOldSuccessfulSyncQueueItems(TWO_DAYS_IN_MS)
+    localStorage.setItem(AUTH_STORAGE_KEY, 'true')
+    localStorage.setItem(AUTH_USER_LABEL_STORAGE_KEY, nextUserLabel)
+    setAuthStatus('authenticated')
+    setUserLabel(nextUserLabel)
   }, [])
 
   useEffect(() => {
@@ -58,6 +80,19 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const restoreExistingSession = async () => {
+      try {
+        const userInfo = await getInfoUsuario()
+        await establishAuthenticatedSession(userInfo)
+      } catch {
+        handleLogoutSuccess()
+      }
+    }
+
+    void restoreExistingSession()
+  }, [establishAuthenticatedSession, handleLogoutSuccess])
+
   const handleLogin = useCallback(async (usuario: string, senha: string) => {
     try {
       setIsSubmittingLogin(true)
@@ -67,20 +102,7 @@ function App() {
         senha,
       })
       const userInfo = await getInfoUsuario()
-      const userIdScope = userInfo?.idusuario !== null && userInfo?.idusuario !== undefined
-        ? `id:${userInfo.idusuario}`
-        : usuario.trim().toLocaleLowerCase('pt-BR')
-      const nextUserLabel = userInfo?.nome?.trim()
-        ? `${userInfo.nome.trim()} (${userInfo.usuario || usuario.trim()})`
-        : (userInfo?.usuario?.trim() || usuario.trim())
-
-      clearAtividadesCache()
-      setOfflineDataUserScope(userIdScope)
-      await removeOldSuccessfulSyncQueueItems(TWO_DAYS_IN_MS)
-      localStorage.setItem(AUTH_STORAGE_KEY, 'true')
-      localStorage.setItem(AUTH_USER_LABEL_STORAGE_KEY, nextUserLabel)
-      setAuthStatus('authenticated')
-      setUserLabel(nextUserLabel)
+      await establishAuthenticatedSession(userInfo, usuario.trim())
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -92,7 +114,11 @@ function App() {
     } finally {
       setIsSubmittingLogin(false)
     }
-  }, [])
+  }, [establishAuthenticatedSession])
+
+  if (authStatus === 'checking') {
+    return null
+  }
 
   return (
     <main className="app-shell">
