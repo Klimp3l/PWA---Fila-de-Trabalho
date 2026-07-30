@@ -878,14 +878,15 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         const defaultExportFields = Array.from(
           new Set([...ALWAYS_VISIBLE_FIELDS, ...loadedVisibleFields]),
         ).filter((field) => availableExportFieldValues.has(field))
-        const savedExportFields = Array.isArray(preferences?.exportFields)
-          ? preferences.exportFields.filter((field) => availableExportFieldValues.has(field))
-          : []
+        const savedExportFieldKeys = preferences?.exportFields
+        const savedExportFields = Array.isArray(savedExportFieldKeys)
+          ? savedExportFieldKeys.filter((field) => availableExportFieldValues.has(field))
+          : defaultExportFields
 
         if (preferences) {
           setLayout(preferences.layout)
           setVisibleFields(loadedVisibleFields)
-          setExportFields(savedExportFields.length > 0 ? savedExportFields : defaultExportFields)
+          setExportFields(savedExportFields)
           setSortDirection(preferences.sortDirection)
           setSortField(
             availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
