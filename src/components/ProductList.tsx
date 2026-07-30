@@ -36,6 +36,7 @@ import type {
   AtividadeProdutoColumn,
   ProdutoAtividade,
 } from '../types/workflow'
+import { BarcodeScannerDialog } from './BarcodeScannerDialog'
 import { WorkflowProgressBar } from './WorkflowProgressBar'
 import {
   getActivityScopeKey,
@@ -298,6 +299,7 @@ interface ProductListProps {
 }
 
 type SearchFilterValue = string | number | Date | string[] | boolean | null
+type BarcodeSearchMode = 'reader' | 'manual'
 type FieldOption = {
   label: string
   value: string
@@ -524,6 +526,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
   const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
   const [selectedBarcodesByProduct, setSelectedBarcodesByProduct] = useState<Record<string, string>>({})
+  const [barcodeSearchMode, setBarcodeSearchMode] = useState<BarcodeSearchMode>('manual')
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false)
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
     departamento: '',
     setor: '',
@@ -620,6 +624,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       ...current,
       [productKey]: barcode,
     }))
+  }, [])
+  const handleBarcodeScan = useCallback((barcode: string) => {
+    setSearchValue(barcode)
+    setBarcodeSearchMode('manual')
+    setIsBarcodeScannerOpen(false)
   }, [])
   const exportFieldConfigByKey = useMemo(
     () => exportFieldOptions.reduce<Record<string, AtividadeProdutoColumn>>((accumulator, option) => {
@@ -1778,7 +1787,52 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               className="product-search-column"
               placeholder="Selecione a coluna"
             />
-            {selectedSearchFieldType === 'input' && (
+            {selectedSearchFieldType === 'input' && searchField === 'codigobarras' && (
+              <div className="product-barcode-search">
+                <div className="product-barcode-search-mode" role="group" aria-label="Modo de busca por código de barras">
+                  <Button
+                    type="button"
+                    label="Leitor"
+                    icon="pi pi-camera"
+                    className={classNames('product-barcode-search-mode-button', {
+                      'product-barcode-search-mode-button-active': barcodeSearchMode === 'reader',
+                    })}
+                    outlined={barcodeSearchMode !== 'reader'}
+                    onClick={() => {
+                      setBarcodeSearchMode('reader')
+                      setIsBarcodeScannerOpen(true)
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    label="Digitar"
+                    icon="pi pi-pencil"
+                    className={classNames('product-barcode-search-mode-button', {
+                      'product-barcode-search-mode-button-active': barcodeSearchMode === 'manual',
+                    })}
+                    outlined={barcodeSearchMode !== 'manual'}
+                    onClick={() => setBarcodeSearchMode('manual')}
+                  />
+                </div>
+                {barcodeSearchMode === 'reader' ? (
+                  <Button
+                    type="button"
+                    label="Abrir câmera"
+                    icon="pi pi-camera"
+                    className="product-barcode-search-camera-button"
+                    onClick={() => setIsBarcodeScannerOpen(true)}
+                  />
+                ) : (
+                  <InputText
+                    value={typeof searchValue === 'string' ? searchValue : ''}
+                    onChange={(event) => setSearchValue(event.target.value)}
+                    placeholder="Digite o código de barras..."
+                    className="product-search-input"
+                  />
+                )}
+              </div>
+            )}
+            {selectedSearchFieldType === 'input' && searchField !== 'codigobarras' && (
               <InputText
                 value={typeof searchValue === 'string' ? searchValue : ''}
                 onChange={(event) => setSearchValue(event.target.value)}
@@ -1976,6 +2030,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   return (
     <section className="panel product-panel">
       <Toast ref={toastRef} position="top-right" />
+      {isBarcodeScannerOpen && (
+        <BarcodeScannerDialog
+          onClose={() => setIsBarcodeScannerOpen(false)}
+          onScan={handleBarcodeScan}
+        />
+      )}
       {!atividade
         ? (
           <>

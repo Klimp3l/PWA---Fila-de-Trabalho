@@ -755,6 +755,62 @@
   width: 100%;
 }
 
+.product-barcode-search {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.product-barcode-search-mode {
+  display: inline-flex;
+  width: fit-content;
+  overflow: hidden;
+  border: 1px solid var(--wfg-line);
+  border-radius: 999px;
+}
+
+.product-barcode-search-mode-button.p-button {
+  border: 0;
+  border-radius: 0;
+}
+
+.product-barcode-search-mode-button-active.p-button {
+  background: var(--wfg-primary);
+  color: #fff;
+}
+
+.product-barcode-search-camera-button {
+  width: fit-content;
+}
+
+.barcode-scanner-dialog {
+  width: min(94vw, 520px);
+}
+
+.barcode-scanner-content {
+  display: grid;
+  gap: 12px;
+}
+
+.barcode-scanner-preview {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--wfg-line);
+  border-radius: 10px;
+  background: #000;
+}
+
+.barcode-scanner-preview video {
+  display: block;
+  width: 100% !important;
+  max-height: 60vh;
+  object-fit: cover;
+}
+
+.barcode-scanner-content > small {
+  color: var(--wfg-text-soft);
+}
+
 .product-panel {
   display: flex;
   flex-direction: column;
