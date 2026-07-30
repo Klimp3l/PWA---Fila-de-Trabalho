@@ -946,6 +946,7 @@
 }
 
 .product-image-wrap {
+  position: relative;
   border-radius: 10px;
   overflow: hidden;
   background: #edf2f8;
@@ -957,6 +958,22 @@
   width: 100%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
+}
+
+.product-image-search-button.p-button {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  color: var(--wfg-primary);
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+}
+
+.product-image-search-button.p-button:hover {
+  background: #fff;
 }
 
 .product-details {

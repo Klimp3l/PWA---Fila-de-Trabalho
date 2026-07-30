@@ -121,6 +121,13 @@ const ProductCardItem = memo(function ProductCardItem({
   ].map((option) => [option.value, option])).values())
   const hasAlternativeBarcodes = barcodeOptions.length > 1
 
+  const handleImageSearch = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    const query = [selectedBarcode, produto.produto].filter(Boolean).join(' ')
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&udm=2`
+    window.open(searchUrl, '_blank', 'noopener,noreferrer')
+  }
+
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     if (readOnly) {
       return
@@ -205,6 +212,14 @@ const ProductCardItem = memo(function ProductCardItem({
                   }
                   event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
                 }}
+              />
+              <Button
+                type="button"
+                icon="pi pi-search"
+                rounded
+                aria-label={`Pesquisar ${produto.produto} no Google`}
+                className="product-image-search-button"
+                onClick={handleImageSearch}
               />
             </div>
             <div className="product-details">
