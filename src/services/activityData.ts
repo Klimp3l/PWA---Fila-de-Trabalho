@@ -15,6 +15,7 @@ import type {
   ActivitySnapshot,
   AtividadeComProdutos,
   AtividadeElegivelProduto,
+  ProdutoEan,
   ProdutoAtividade,
 } from '../types/workflow'
 
@@ -101,6 +102,23 @@ const toAtividadeElegivelProduto = (value: unknown): AtividadeElegivelProduto | 
   }
 }
 
+const toProdutoEan = (value: unknown): ProdutoEan | null => {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const ean = String(value.ean ?? '').trim()
+
+  if (!ean) {
+    return null
+  }
+
+  return {
+    ean,
+    quantidade: toNumberOrNull(value.quantidade),
+  }
+}
+
 const toAtividadeProdutoColumnsFromGroups = (value: unknown): Record<string, AtividadeProdutoColumn> => {
   if (!Array.isArray(value)) {
     return {}
@@ -170,6 +188,9 @@ const toProduto = (value: unknown): ProdutoAtividade | null => {
     empresa: String(value.empresa ?? ''),
     idproduto,
     codigobarras: String(value.codigobarras ?? ''),
+    ean: (Array.isArray(value.ean) ? value.ean : [])
+      .map(toProdutoEan)
+      .filter((item): item is ProdutoEan => item !== null),
     produto: String(value.produto ?? ''),
     idwfatividaderealizada: toNumberOrNull(value.idwfatividaderealizada),
     observacao: String(value.observacao ?? ''),

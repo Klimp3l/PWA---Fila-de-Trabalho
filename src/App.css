@@ -914,6 +914,20 @@
   gap: 6px;
 }
 
+.product-card-barcode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--wfg-text-soft);
+  font-size: 0.85rem;
+}
+
+.product-card-barcode-dropdown {
+  min-width: 0;
+  flex: 1;
+}
+
 .product-item {
   width: 100%;
 }

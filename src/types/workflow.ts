@@ -24,6 +24,11 @@ export interface AtividadeProdutoGroupColumn {
   itens: AtividadeProdutoGroupColumnItem[]
 }
 
+export interface ProdutoEan {
+  ean: string
+  quantidade: number | null
+}
+
 export interface ProdutoAtividade {
   idwffilatrabalho: number
   idwfocorrencia: number
@@ -31,6 +36,7 @@ export interface ProdutoAtividade {
   empresa: string
   idproduto: number
   codigobarras: string
+  ean: ProdutoEan[]
   produto: string
   idwfatividaderealizada: number | null
   observacao: string

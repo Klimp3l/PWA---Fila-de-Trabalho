@@ -77,11 +77,13 @@ interface ProductCardItemProps {
   isSelected: boolean
   isForwarded: boolean
   selectedActivity: number | null
+  selectedBarcode: string
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
   specialFieldValues: Record<string, string | number | boolean | null>
   onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
+  onBarcodeChange: (productKey: string, barcode: string) => void
   onToggleSelect: (productKey: string, checked: boolean) => void
   onActivityChange: (productKey: string, activityId: number | null) => void
   readOnly: boolean
@@ -94,16 +96,29 @@ const ProductCardItem = memo(function ProductCardItem({
   isSelected,
   isForwarded,
   selectedActivity,
+  selectedBarcode,
   activityOptions,
   visibleFields,
   fieldConfigByKey,
   specialFieldValues,
   onSpecialFieldChange,
+  onBarcodeChange,
   onToggleSelect,
   onActivityChange,
   readOnly,
 }: ProductCardItemProps) {
   const productKey = getProdutoAtividadeKey(produto)
+  const barcodeOptions = Array.from(new Map([
+    {
+      label: produto.codigobarras || 'Código principal não informado',
+      value: produto.codigobarras,
+    },
+    ...produto.ean.map(({ ean, quantidade }) => ({
+      label: quantidade === null ? ean : `${ean} | Qtd. emb.: ${quantidade}`,
+      value: ean,
+    })),
+  ].map((option) => [option.value, option])).values())
+  const hasAlternativeBarcodes = barcodeOptions.length > 1
 
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     if (readOnly) {
@@ -198,8 +213,26 @@ const ProductCardItem = memo(function ProductCardItem({
               <div className="product-card-body">
                 <p key={`${produto.idproduto}-idproduto`}>
                   ID: {produto.idproduto}
-                  <i className="fa-solid fa-barcode" aria-hidden="true" />{produto.codigobarras}
                 </p>
+                {hasAlternativeBarcodes ? (
+                  <div className="product-card-barcode">
+                    <i className="fa-solid fa-barcode" aria-hidden="true" />
+                    <Dropdown
+                      inputId={`product-barcode-${productKey}`}
+                      value={selectedBarcode}
+                      onChange={(event: DropdownChangeEvent) => onBarcodeChange(productKey, String(event.value ?? ''))}
+                      options={barcodeOptions}
+                      optionLabel="label"
+                      optionValue="value"
+                      aria-label="Código de barras"
+                      className="product-card-barcode-dropdown"
+                    />
+                  </div>
+                ) : (
+                  <p>
+                    <i className="fa-solid fa-barcode" aria-hidden="true" />{produto.codigobarras}
+                  </p>
+                )}
                 {visibleFields.map((field) => (
                   <p key={`${produto.idproduto}-${field}`}>
                     {fieldConfigByKey[field]?.icon && <i className={fieldConfigByKey[field].icon} aria-hidden="true" />}
@@ -490,6 +523,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
   const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
+  const [selectedBarcodesByProduct, setSelectedBarcodesByProduct] = useState<Record<string, string>>({})
   const [marketFilters, setMarketFilters] = useState<Record<MarketFieldKey, string>>({
     departamento: '',
     setor: '',
@@ -555,7 +589,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
     products.forEach((produto) => {
       Object.entries(produto).forEach(([field, value]) => {
-        if (field === 'urlImagem' || optionsByKey.has(field)) {
+        if (field === 'urlImagem' || field === 'ean' || optionsByKey.has(field)) {
           return
         }
 
@@ -581,6 +615,12 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     () => backendColumns,
     [backendColumns],
   )
+  const changeProductBarcode = useCallback((productKey: string, barcode: string) => {
+    setSelectedBarcodesByProduct((current) => ({
+      ...current,
+      [productKey]: barcode,
+    }))
+  }, [])
   const exportFieldConfigByKey = useMemo(
     () => exportFieldOptions.reduce<Record<string, AtividadeProdutoColumn>>((accumulator, option) => {
       accumulator[option.value] = {
@@ -1063,6 +1103,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         const fieldValue = getProdutoFieldValue(produto, searchField)
         if (selectedSearchFieldType === 'input') {
           const normalizedSearch = String(searchValue ?? '').trim().toLocaleLowerCase('pt-BR')
+          if (searchField === 'codigobarras') {
+            const barcodes = [
+              produto.codigobarras,
+              ...produto.ean.map(({ ean }) => ean),
+            ]
+            return barcodes.some((barcode) =>
+              barcode.toLocaleLowerCase('pt-BR').includes(normalizedSearch))
+          }
           return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
         }
         if (selectedSearchFieldType === 'inputNumber') {
@@ -1895,11 +1943,13 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 ? (selectedActivitiesByProduct[productKey] ?? null)
                 : (produto.idwfatividaderealizada ?? null)
             }
+            selectedBarcode={selectedBarcodesByProduct[productKey] ?? produto.codigobarras}
             activityOptions={activityOptions}
             visibleFields={cardVisibleFields}
             fieldConfigByKey={fieldConfigByKey}
             specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
             onSpecialFieldChange={handleSpecialFieldChange}
+            onBarcodeChange={changeProductBarcode}
             onToggleSelect={toggleProductSelection}
             onActivityChange={changeProductActivity}
             readOnly={readOnlyPackageView}
@@ -1910,11 +1960,13 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   ), [
     activityOptions,
     selectedActivitiesByProduct,
+    selectedBarcodesByProduct,
     specialFieldValuesByProduct,
     selectedProductKeysSet,
     isForwardedProduct,
     toggleProductSelection,
     changeProductActivity,
+    changeProductBarcode,
     handleSpecialFieldChange,
     readOnlyPackageView,
     cardVisibleFields,
