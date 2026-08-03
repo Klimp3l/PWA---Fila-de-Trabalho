@@ -1,11 +1,10 @@
-const DEFAULT_API_BASE_URL = ''
 const EXEC_TAREFA_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend'
 const SESSION_INVALID_HEADER = 'odw_redirect'
 export const SESSION_INVALID_EVENT = 'odw:session-invalid'
 
-export const API_BASE_URL = import.meta.env.DEV
-  ? window.location.origin
-  : import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+// A API sempre deve atender no mesmo host em que o PWA foi publicado.
+// Assim, o artefato de build pode ser publicado para qualquer cliente.
+export const API_BASE_URL = window.location.origin
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null

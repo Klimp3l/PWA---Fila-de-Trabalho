@@ -6,7 +6,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Deve coincidir com o caminho público onde o `dist` é servido (ex.: .../pwa/fila/).
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const proxyTarget = env.VITE_API_BASE_URL?.trim()
+  // O proxy existe apenas para desenvolvimento local. Não integra o build.
+  const proxyTarget = mode === 'development'
+    ? env.API_PROXY_TARGET?.trim()
+    : undefined
 
   return {
     base: '/bdoserver2.7/pwa/fila/',

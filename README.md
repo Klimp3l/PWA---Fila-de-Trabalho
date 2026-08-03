@@ -10,15 +10,16 @@ Aplicação React com estratégia **offline-first** para continuidade de uso qua
 - Sincronização automática ao reconectar e também via botão manual.
 - Configuração PWA com `service worker` e cache de assets/documentos/API.
 
-## Configuração de ambiente
+## Proxy de desenvolvimento
 
-Copie o arquivo `.env.example` para `.env` e ajuste a URL:
+Para executar o Vite localmente contra uma API remota, crie um `.env` e ajuste:
 
 ```bash
-VITE_API_BASE_URL=
+API_PROXY_TARGET=https://servidor-do-cliente
 ```
 
-Em produção (Tomcat do cliente), a URL pode apontar para o mesmo domínio do ambiente publicado.
+Essa configuração é usada exclusivamente pelo proxy do `npm run dev`. O build usa
+sempre a origem onde o PWA estiver publicado, sem incorporar URL de outro cliente.
 
 ## Comandos
 
