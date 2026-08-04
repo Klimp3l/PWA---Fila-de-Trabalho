@@ -2,9 +2,9 @@ const EXEC_TAREFA_APELIDO = 'HEAVEN-wfg-fila-trabalho-mobile-backend'
 const SESSION_INVALID_HEADER = 'odw_redirect'
 export const SESSION_INVALID_EVENT = 'odw:session-invalid'
 
-// A API sempre deve atender no mesmo host em que o PWA foi publicado.
+// URLs relativas obrigam o navegador a usar o mesmo host do PWA publicado.
 // Assim, o artefato de build pode ser publicado para qualquer cliente.
-export const API_BASE_URL = window.location.origin
+export const API_BASE_URL = ''
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null

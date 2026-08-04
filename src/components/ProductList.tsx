@@ -13,6 +13,7 @@ import { MultiSelect, type MultiSelectChangeEvent } from 'primereact/multiselect
 import { OrderList, type OrderListChangeEvent } from 'primereact/orderlist'
 import { Toast } from 'primereact/toast'
 import { classNames } from 'primereact/utils'
+import { VirtuosoGrid } from 'react-virtuoso'
 import type { IconProp } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -537,6 +538,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const [showExportControls, setShowExportControls] = useState(false)
   const [searchField, setSearchField] = useState('produto')
   const [searchValue, setSearchValue] = useState<SearchFilterValue>('')
+  const deferredSearchValue = useDeferredValue(searchValue)
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
   const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
@@ -1095,17 +1097,20 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   )
 
   const filteredAndSortedProducts = useMemo(() => {
+    const appliedSearchValue = selectedSearchFieldType === 'input'
+      ? deferredSearchValue
+      : searchValue
     const hasSearchValue = (() => {
       if (!searchField) {
         return false
       }
       if (selectedSearchFieldType === 'multipleSelect') {
-        return Array.isArray(searchValue) && searchValue.length > 0
+        return Array.isArray(appliedSearchValue) && appliedSearchValue.length > 0
       }
       if (selectedSearchFieldType === 'input') {
-        return typeof searchValue === 'string' && searchValue.trim() !== ''
+        return typeof appliedSearchValue === 'string' && appliedSearchValue.trim() !== ''
       }
-      return searchValue !== null && searchValue !== ''
+      return appliedSearchValue !== null && appliedSearchValue !== ''
     })()
 
     const filteredByMarket = products.filter((produto) => {
@@ -1126,7 +1131,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       : filteredByMarket.filter((produto) => {
         const fieldValue = getProdutoFieldValue(produto, searchField)
         if (selectedSearchFieldType === 'input') {
-          const normalizedSearch = String(searchValue ?? '').trim().toLocaleLowerCase('pt-BR')
+          const normalizedSearch = String(appliedSearchValue ?? '').trim().toLocaleLowerCase('pt-BR')
           if (searchField === 'codigobarras') {
             const barcodes = [
               produto.codigobarras,
@@ -1138,33 +1143,33 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(normalizedSearch)
         }
         if (selectedSearchFieldType === 'inputNumber') {
-          const target = Number(searchValue)
+          const target = Number(appliedSearchValue)
           if (!Number.isFinite(target)) {
             return true
           }
           return Number(fieldValue) === target
         }
         if (selectedSearchFieldType === 'date') {
-          return formatDateForComparison(fieldValue) === formatDateForComparison(searchValue)
+          return formatDateForComparison(fieldValue) === formatDateForComparison(appliedSearchValue)
         }
         if (selectedSearchFieldType === 'select') {
-          return String(fieldValue ?? '').trim() === String(searchValue ?? '').trim()
+          return String(fieldValue ?? '').trim() === String(appliedSearchValue ?? '').trim()
         }
         if (selectedSearchFieldType === 'multipleSelect') {
-          if (!Array.isArray(searchValue)) {
+          if (!Array.isArray(appliedSearchValue)) {
             return true
           }
-          return searchValue.includes(String(fieldValue ?? '').trim())
+          return appliedSearchValue.includes(String(fieldValue ?? '').trim())
         }
         if (selectedSearchFieldType === 'boolean') {
-          const boolSearch = normalizeBooleanValue(searchValue)
+          const boolSearch = normalizeBooleanValue(appliedSearchValue)
           const boolField = normalizeBooleanValue(fieldValue)
           if (boolSearch === null || boolField === null) {
             return false
           }
           return boolField === boolSearch
         }
-        return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(String(searchValue ?? '').toLocaleLowerCase('pt-BR'))
+        return String(fieldValue ?? '').toLocaleLowerCase('pt-BR').includes(String(appliedSearchValue ?? '').toLocaleLowerCase('pt-BR'))
       })
 
     const shouldShowForwardedProducts = readOnlyPackageView || showForwardedProducts
@@ -1187,6 +1192,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     products,
     searchField,
     selectedSearchFieldType,
+    deferredSearchValue,
     searchValue,
     readOnlyPackageView,
     showForwardedProducts,
@@ -1194,8 +1200,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     sortDirection,
     sortField,
   ])
-
-  const deferredFilteredAndSortedProducts = useDeferredValue(filteredAndSortedProducts)
   const handleExportFieldsChange = useCallback((selectedFields: string[]) => {
     const selectedFieldSet = new Set(selectedFields)
     setExportFields((current) => [
@@ -1382,8 +1386,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   )
 
   const filteredProductKeys = useMemo(
-    () => deferredFilteredAndSortedProducts.map((produto) => getProdutoAtividadeKey(produto)),
-    [deferredFilteredAndSortedProducts],
+    () => filteredAndSortedProducts.map((produto) => getProdutoAtividadeKey(produto)),
+    [filteredAndSortedProducts],
   )
 
   const selectedProductKeysSet = useMemo(
@@ -1647,6 +1651,19 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           <>
             <span className="product-list-view-mode"><FontAwesomeIcon icon={faEye} /> Modo visualização</span>
           </>
+        )}
+        {isStickyHeaderStuck && (
+          <Button
+            type="button"
+            icon="pi pi-arrow-up"
+            text
+            rounded
+            className="product-scroll-top"
+            aria-label="Voltar ao topo da página"
+            tooltip="Voltar ao topo"
+            tooltipOptions={{ position: 'bottom' }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          />
         )}
         <DataViewLayoutOptions
           layout={layout}
@@ -1988,45 +2005,33 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     </div>
   )
 
-  const renderProductList = useCallback((
-    items: ProdutoAtividade[],
-    currentLayout: 'list' | 'grid' = 'list',
-  ) => (
-    <div
-      className={classNames('product-list', {
-        'product-list-grid': currentLayout === 'grid',
-      })}
-    >
-      {items.map((produto, index) => {
-        const productKey = getProdutoAtividadeKey(produto)
-        return (
-          <ProductCardItem
-            key={productKey}
-            produto={produto}
-            layout={currentLayout}
-            index={index}
-            isSelected={selectedProductKeysSet.has(productKey)}
-            isForwarded={isForwardedProduct(produto)}
-            selectedActivity={
-              Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
-                ? (selectedActivitiesByProduct[productKey] ?? null)
-                : (produto.idwfatividaderealizada ?? null)
-            }
-            selectedBarcode={selectedBarcodesByProduct[productKey] ?? produto.codigobarras}
-            activityOptions={activityOptions}
-            visibleFields={cardVisibleFields}
-            fieldConfigByKey={fieldConfigByKey}
-            specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
-            onSpecialFieldChange={handleSpecialFieldChange}
-            onBarcodeChange={changeProductBarcode}
-            onToggleSelect={toggleProductSelection}
-            onActivityChange={changeProductActivity}
-            readOnly={readOnlyPackageView}
-          />
-        )
-      })}
-    </div>
-  ), [
+  const renderProductItem = useCallback((index: number, produto: ProdutoAtividade) => {
+    const productKey = getProdutoAtividadeKey(produto)
+    return (
+      <ProductCardItem
+        produto={produto}
+        layout={layout}
+        index={index}
+        isSelected={selectedProductKeysSet.has(productKey)}
+        isForwarded={isForwardedProduct(produto)}
+        selectedActivity={
+          Object.prototype.hasOwnProperty.call(selectedActivitiesByProduct, productKey)
+            ? (selectedActivitiesByProduct[productKey] ?? null)
+            : (produto.idwfatividaderealizada ?? null)
+        }
+        selectedBarcode={selectedBarcodesByProduct[productKey] ?? produto.codigobarras}
+        activityOptions={activityOptions}
+        visibleFields={cardVisibleFields}
+        fieldConfigByKey={fieldConfigByKey}
+        specialFieldValues={specialFieldValuesByProduct[productKey] ?? {}}
+        onSpecialFieldChange={handleSpecialFieldChange}
+        onBarcodeChange={changeProductBarcode}
+        onToggleSelect={toggleProductSelection}
+        onActivityChange={changeProductActivity}
+        readOnly={readOnlyPackageView}
+      />
+    )
+  }, [
     activityOptions,
     selectedActivitiesByProduct,
     selectedBarcodesByProduct,
@@ -2040,6 +2045,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     readOnlyPackageView,
     cardVisibleFields,
     fieldConfigByKey,
+    layout,
   ])
 
   return (
@@ -2097,9 +2103,20 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 {header()}
               </div>
               <div className="p-dataview-content">
-                {deferredFilteredAndSortedProducts.length > 0
+                {filteredAndSortedProducts.length > 0
                   ? (
-                    renderProductList(deferredFilteredAndSortedProducts, layout)
+                    <VirtuosoGrid
+                      className="product-virtual-grid"
+                      listClassName={classNames('product-list', {
+                        'product-list-grid': layout === 'grid',
+                      })}
+                      itemClassName="product-virtual-item"
+                      data={filteredAndSortedProducts}
+                      computeItemKey={(_, produto) => getProdutoAtividadeKey(produto)}
+                      itemContent={renderProductItem}
+                      useWindowScroll
+                      increaseViewportBy={{ top: 400, bottom: 600 }}
+                    />
                   )
                   : (
                     <div className="p-dataview-emptymessage">

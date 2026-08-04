@@ -866,6 +866,33 @@
   border-radius: 0 0 10px 10px;
 }
 
+.product-scroll-top.p-button {
+  color: var(--wfg-primary);
+  animation: product-scroll-top-enter 0.2s ease-out;
+}
+
+.product-scroll-top.p-button:enabled:hover {
+  background: var(--wfg-primary-soft);
+}
+
+@keyframes product-scroll-top-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-scroll-top.p-button {
+    animation: none;
+  }
+}
+
 .product-panel .p-dataview-content {
   border: none;
   background: transparent;
@@ -1005,6 +1032,13 @@
   width: 100%;
 }
 
+.product-virtual-item {
+  min-width: 0;
+}
+
+.product-virtual-item > .product-item {
+  height: 100%;
+}
 
 .product-list {
   display: grid;
@@ -1166,7 +1200,7 @@
   .product-list-control-panel .p-inputtext,
   .product-list-control-panel .p-inputnumber-input {
     padding: 0.5rem 0.65rem;
-    font-size: 0.88rem;
+    font-size: 1rem;
   }
 
   .product-panel .p-dropdown {
@@ -1357,5 +1391,18 @@
   .product-card-content-grid .product-image-wrap {
     width: min(100%, 140px);
     max-width: 140px;
+  }
+
+  /*
+   * O Safari/iOS amplia a página ao focar campos com fonte menor que 16px.
+   * Mantemos esse mínimo nos controles editáveis para evitar o zoom automático.
+   */
+  body input.p-inputtext,
+  body input.p-inputnumber-input,
+  body input.p-calendar-input,
+  body .p-dropdown-filter,
+  body .p-multiselect-filter,
+  body textarea {
+    font-size: 16px !important;
   }
 }
