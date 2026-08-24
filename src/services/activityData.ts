@@ -405,8 +405,10 @@ export const removeActivityProductSelections = async (
   await activityProductSelectionRepository.save(nextSnapshot)
 }
 
-export const loadActivitySyncQueueItems = async (): Promise<ActivitySyncQueueItem[]> => {
-  const snapshot = await activitySyncQueueRepository.load()
+export const loadActivitySyncQueueItems = async (
+  userScope?: string,
+): Promise<ActivitySyncQueueItem[]> => {
+  const snapshot = await activitySyncQueueRepository.load(userScope)
   if (!snapshot) {
     return []
   }
@@ -422,8 +424,9 @@ export const loadActivitySyncQueueItems = async (): Promise<ActivitySyncQueueIte
 
 export const upsertActivitySyncQueueItem = async (
   item: ActivitySyncQueueItem,
+  userScope?: string,
 ) => {
-  const currentSnapshotRaw = await activitySyncQueueRepository.load()
+  const currentSnapshotRaw = await activitySyncQueueRepository.load(userScope)
   const currentSnapshotRecord = (currentSnapshotRaw as ActivitySyncQueueSnapshot & { itemsByActivityId?: Record<string, ActivitySyncQueueItem> } | null)
   const currentItemsBySubmissionId = currentSnapshotRecord?.itemsBySubmissionId
     ?? currentSnapshotRecord?.itemsByActivityId
@@ -440,7 +443,7 @@ export const upsertActivitySyncQueueItem = async (
     },
   }
 
-  await activitySyncQueueRepository.save(nextSnapshot)
+  await activitySyncQueueRepository.save(nextSnapshot, userScope)
 }
 
 export const removeActivitySyncQueueItem = async (
@@ -469,8 +472,9 @@ export const removeActivitySyncQueueItem = async (
 
 export const removeOldSuccessfulSyncQueueItems = async (
   olderThanMs: number,
+  userScope?: string,
 ) => {
-  const snapshot = await activitySyncQueueRepository.load()
+  const snapshot = await activitySyncQueueRepository.load(userScope)
   if (!snapshot) {
     return
   }
@@ -500,14 +504,32 @@ export const removeOldSuccessfulSyncQueueItems = async (
     itemsBySubmissionId: nextItemsBySubmissionId,
   }
 
-  await activitySyncQueueRepository.save(nextSnapshot)
+  await activitySyncQueueRepository.save(nextSnapshot, userScope)
 }
 
-export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComProdutos[]> => {
-  const localSelectionsSnapshot = await activityProductSelectionRepository.load()
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException('A operação foi cancelada.', 'AbortError')
+  }
+}
+
+const isAbortError = (error: unknown, signal?: AbortSignal) =>
+  signal?.aborted === true
+  || (error instanceof DOMException && error.name === 'AbortError')
+
+export const loadAtividadesWithOfflineFallback = async (
+  userScope: string,
+  signal?: AbortSignal,
+): Promise<AtividadeComProdutos[]> => {
+  throwIfAborted(signal)
+  const localSelectionsSnapshot = await activityProductSelectionRepository.load(userScope)
+  throwIfAborted(signal)
 
   try {
-    const rawResponse = await getAtividades()
+    const rawResponse = await getAtividades(undefined, signal)
+    throwIfAborted(signal)
     const rawAtividades = extractRawAtividades(rawResponse)
     const parsedAtividades = rawAtividades
       .map(toAtividade)
@@ -524,11 +546,18 @@ export const loadAtividadesWithOfflineFallback = async (): Promise<AtividadeComP
       atividades: atividadesWithLocalSelections,
     }
 
-    await activitySnapshotRepository.save(snapshot)
+    throwIfAborted(signal)
+    await activitySnapshotRepository.save(snapshot, userScope)
+    throwIfAborted(signal)
     return atividadesWithLocalSelections
   } catch (error) {
+    if (isAbortError(error, signal)) {
+      throw error
+    }
+
     console.warn('[activityData] Falha ao carregar atividades online. Usando snapshot offline.', error)
-    const localSnapshot = await activitySnapshotRepository.load()
+    const localSnapshot = await activitySnapshotRepository.load(userScope)
+    throwIfAborted(signal)
     return applyLocalSelections(localSnapshot?.atividades ?? [], localSelectionsSnapshot)
   }
 }

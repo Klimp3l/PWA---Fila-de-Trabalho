@@ -69,7 +69,8 @@ const getInitialUserScope = () => {
 
 let currentUserScope = getInitialUserScope()
 
-const buildScopedKey = (baseKey: string) => `${baseKey}::${currentUserScope}`
+const buildScopedKey = (baseKey: string, userScope?: string) =>
+  `${baseKey}::${userScope === undefined ? currentUserScope : normalizeUserScope(userScope)}`
 
 export const setOfflineDataUserScope = (user: string | null) => {
   currentUserScope = normalizeUserScope(user)
@@ -97,17 +98,17 @@ const dbPromise = openDB<OfflineDatabaseSchema>(DB_NAME, DB_VERSION, {
 })
 
 export const activitySnapshotRepository = {
-  async save(snapshot: ActivitySnapshot) {
+  async save(snapshot: ActivitySnapshot, userScope?: string) {
     const db = await dbPromise
     await db.put('activitySnapshots', {
-      key: buildScopedKey(ACTIVITIES_SNAPSHOT_KEY),
+      key: buildScopedKey(ACTIVITIES_SNAPSHOT_KEY, userScope),
       value: snapshot,
     })
   },
 
-  async load() {
+  async load(userScope?: string) {
     const db = await dbPromise
-    const scopedKey = buildScopedKey(ACTIVITIES_SNAPSHOT_KEY)
+    const scopedKey = buildScopedKey(ACTIVITIES_SNAPSHOT_KEY, userScope)
     const record = await db.get('activitySnapshots', scopedKey)
 
     if (record?.value) {
@@ -135,17 +136,17 @@ export const activitySnapshotRepository = {
 }
 
 export const activityProductSelectionRepository = {
-  async save(snapshot: ActivityProductSelectionsSnapshot) {
+  async save(snapshot: ActivityProductSelectionsSnapshot, userScope?: string) {
     const db = await dbPromise
     await db.put('activityProductSelections', {
-      key: buildScopedKey(ACTIVITY_PRODUCT_SELECTIONS_KEY),
+      key: buildScopedKey(ACTIVITY_PRODUCT_SELECTIONS_KEY, userScope),
       value: snapshot,
     })
   },
 
-  async load() {
+  async load(userScope?: string) {
     const db = await dbPromise
-    const scopedKey = buildScopedKey(ACTIVITY_PRODUCT_SELECTIONS_KEY)
+    const scopedKey = buildScopedKey(ACTIVITY_PRODUCT_SELECTIONS_KEY, userScope)
     const record = await db.get('activityProductSelections', scopedKey)
 
     if (record?.value) {
@@ -211,17 +212,17 @@ export const activityProductListPreferencesRepository = {
 }
 
 export const activitySyncQueueRepository = {
-  async save(snapshot: ActivitySyncQueueSnapshot) {
+  async save(snapshot: ActivitySyncQueueSnapshot, userScope?: string) {
     const db = await dbPromise
     await db.put('activitySyncQueue', {
-      key: buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY),
+      key: buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY, userScope),
       value: snapshot,
     })
   },
 
-  async load() {
+  async load(userScope?: string) {
     const db = await dbPromise
-    const scopedKey = buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY)
+    const scopedKey = buildScopedKey(ACTIVITY_SYNC_QUEUE_KEY, userScope)
     const record = await db.get('activitySyncQueue', scopedKey)
 
     if (record?.value) {

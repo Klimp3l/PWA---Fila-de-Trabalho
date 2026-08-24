@@ -193,11 +193,18 @@ export const logout = async (
 
 export const getAtividades = async (
   baseUrl = API_BASE_URL,
+  signal?: AbortSignal,
 ): Promise<unknown> => {
-  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=getAtividades', {
+  const cacheBuster = encodeURIComponent(`${Date.now()}-${crypto.randomUUID()}`)
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + `&scriptFunction=getAtividades&_=${cacheBuster}`, {
     method: 'GET',
     credentials: 'include',
     cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+    },
+    signal,
   })
 
   const parsed = await parseJson(response)
@@ -234,6 +241,7 @@ export const getInfoUsuario = async (
 export const updateEncaminhamentos = async (
   payload: EncaminhamentoUpdatePayload,
   baseUrl = API_BASE_URL,
+  signal?: AbortSignal,
 ): Promise<EncaminhamentoUpdateResponse | null> => {
   const body = new URLSearchParams({
     wffilatrabalho: JSON.stringify(payload),
@@ -246,6 +254,7 @@ export const updateEncaminhamentos = async (
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     },
     body,
+    signal,
   })
 
   const parsed = await parseJson(response)

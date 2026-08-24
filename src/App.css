@@ -258,6 +258,14 @@
   gap: 8px;
 }
 
+.app-version {
+  margin-top: 24px;
+  padding: 12px 0 4px;
+  color: var(--wfg-text-soft);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
 .activity-card-list {
   display: grid;
   gap: 10px;

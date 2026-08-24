@@ -17,6 +17,7 @@ import {
   getPackageProductKeys,
   getQueueItemProductKeys,
 } from '../services/activitySyncQueueUtils'
+import appVersionRaw from '../../fila.version?raw'
 
 const formatSubmissionDateTime = (timestamp: number) => (
   new Date(timestamp).toLocaleString('pt-BR', {
@@ -26,9 +27,14 @@ const formatSubmissionDateTime = (timestamp: number) => (
 )
 
 const PROCESSINGS_PAGE_SIZE = 5
+const APP_VERSION = appVersionRaw.trim()
 
-export function HomePage() {
-  const { atividades, isLoading, reloadAtividades } = useAtividadesWithOnlineRefresh('HomePage')
+interface HomePageProps {
+  userScope: string
+}
+
+export function HomePage({ userScope }: HomePageProps) {
+  const { atividades, isLoading, reloadAtividades } = useAtividadesWithOnlineRefresh(userScope, 'HomePage')
   const navigate = useNavigate()
   const toastRef = useRef<Toast | null>(null)
   const { syncQueueItems, processingSubmissionId, enqueueForSync, retryQueueItem } = useActivitySyncQueue()
@@ -159,7 +165,7 @@ export function HomePage() {
   }
 
   return (
-    <section>
+    <section className="home-page">
       <Toast ref={toastRef} position="top-right" />
       <div className="home-page-header">
         <h3><FontAwesomeIcon icon={faPersonWalking} /> Minhas Atividades</h3>
@@ -299,6 +305,7 @@ export function HomePage() {
             </div>
           )}
       </section>
+      <footer className="app-version">Versão {APP_VERSION}</footer>
     </section>
   )
 }

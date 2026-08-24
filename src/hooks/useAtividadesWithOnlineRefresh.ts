@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadAtividadesWithOfflineFallback } from '../services/activityData'
 import type { AtividadeComProdutos, CamposDigitais } from '../types/workflow'
 
-let atividadesCache: AtividadeComProdutos[] | null = null
+interface AtividadesCacheEntry {
+  userScope: string
+  atividades: AtividadeComProdutos[]
+}
+
+let atividadesCache: AtividadesCacheEntry | null = null
+let cacheGeneration = 0
+const activeRequests = new Set<AbortController>()
 
 export const clearAtividadesCache = () => {
+  cacheGeneration += 1
   atividadesCache = null
+  activeRequests.forEach((controller) => controller.abort())
+  activeRequests.clear()
 }
 
 export const syncActivitySelectionsInCache = (
@@ -25,31 +35,34 @@ export const syncActivitySelectionsInCache = (
     return
   }
 
-  atividadesCache = atividadesCache.map((atividade) => {
-    if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
-      return atividade
-    }
+  atividadesCache = {
+    ...atividadesCache,
+    atividades: atividadesCache.atividades.map((atividade) => {
+      if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
+        return atividade
+      }
 
-    return {
-      ...atividade,
-      produtos: atividade.produtos.map((produto) => {
-        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+      return {
+        ...atividade,
+        produtos: atividade.produtos.map((produto) => {
+          const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
 
-        if (!(productKey in selectionsByProduct)) {
-          return produto
-        }
+          if (!(productKey in selectionsByProduct)) {
+            return produto
+          }
 
-        return {
-          ...produto,
-          idwfatividaderealizada: selectionsByProduct[productKey] ?? null,
-          camposDigitais: {
-            ...(produto.camposDigitais ?? {}),
-            ...(fieldValuesByProduct[productKey] ?? {}),
-          },
-        }
-      }),
-    }
-  })
+          return {
+            ...produto,
+            idwfatividaderealizada: selectionsByProduct[productKey] ?? null,
+            camposDigitais: {
+              ...(produto.camposDigitais ?? {}),
+              ...(fieldValuesByProduct[productKey] ?? {}),
+            },
+          }
+        }),
+      }
+    }),
+  }
 }
 
 export const removeActivityFromCache = (activityId: number) => {
@@ -57,7 +70,10 @@ export const removeActivityFromCache = (activityId: number) => {
     return
   }
 
-  atividadesCache = atividadesCache.filter((atividade) => atividade.idwfatividade !== activityId)
+  atividadesCache = {
+    ...atividadesCache,
+    atividades: atividadesCache.atividades.filter((atividade) => atividade.idwfatividade !== activityId),
+  }
 }
 
 export const removeActivityProductsFromCache = (
@@ -76,19 +92,22 @@ export const removeActivityProductsFromCache = (
     return
   }
 
-  atividadesCache = atividadesCache.map((atividade) => {
-    if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
-      return atividade
-    }
+  atividadesCache = {
+    ...atividadesCache,
+    atividades: atividadesCache.atividades.map((atividade) => {
+      if (atividade.idwfatividade !== activityId || atividade.idempresa !== companyId) {
+        return atividade
+      }
 
-    return {
-      ...atividade,
-      produtos: atividade.produtos.filter((produto) => {
-        const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
-        return !productKeys.has(productKey)
-      }),
-    }
-  })
+      return {
+        ...atividade,
+        produtos: atividade.produtos.filter((produto) => {
+          const productKey = `${produto.idwffilatrabalho}-${produto.idwfocorrencia}-${produto.idproduto}`
+          return !productKeys.has(productKey)
+        }),
+      }
+    }),
+  }
 }
 
 interface UseAtividadesWithOnlineRefreshResult {
@@ -102,23 +121,59 @@ interface UseAtividadesWithOnlineRefreshOptions {
 }
 
 export function useAtividadesWithOnlineRefresh(
+  userScope: string,
   logContext: string,
   options?: UseAtividadesWithOnlineRefreshOptions
 ): UseAtividadesWithOnlineRefreshResult {
   const shouldLoad = options?.enabled ?? true
-  const [atividades, setAtividades] = useState<AtividadeComProdutos[]>(() => atividadesCache ?? [])
-  const [isLoading, setIsLoading] = useState(shouldLoad && atividadesCache === null)
+  const getCachedAtividades = () =>
+    atividadesCache?.userScope === userScope ? atividadesCache.atividades : null
+  const [atividades, setAtividades] = useState<AtividadeComProdutos[]>(() => getCachedAtividades() ?? [])
+  const [isLoading, setIsLoading] = useState(shouldLoad && getCachedAtividades() === null)
+  const activeControllerRef = useRef<AbortController | null>(null)
+  const requestSequenceRef = useRef(0)
 
   const fetchAtividades = useCallback(async () => {
+    activeControllerRef.current?.abort()
+    const controller = new AbortController()
+    const requestSequence = ++requestSequenceRef.current
+    const requestGeneration = cacheGeneration
+    activeControllerRef.current = controller
+    activeRequests.add(controller)
     setIsLoading(true)
+
     try {
-      const parsedAtividades = await loadAtividadesWithOfflineFallback()
-      atividadesCache = parsedAtividades
+      const parsedAtividades = await loadAtividadesWithOfflineFallback(userScope, controller.signal)
+      if (
+        controller.signal.aborted
+        || requestSequence !== requestSequenceRef.current
+        || requestGeneration !== cacheGeneration
+      ) {
+        return
+      }
+
+      atividadesCache = {
+        userScope,
+        atividades: parsedAtividades,
+      }
       setAtividades(parsedAtividades)
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+      throw error
     } finally {
-      setIsLoading(false)
+      activeRequests.delete(controller)
+      if (
+        !controller.signal.aborted
+        && requestSequence === requestSequenceRef.current
+        && requestGeneration === cacheGeneration
+      ) {
+        setIsLoading(false)
+        activeControllerRef.current = null
+      }
     }
-  }, [])
+  }, [userScope])
 
   const reloadAtividades = useCallback(async () => {
     await fetchAtividades()
@@ -127,19 +182,34 @@ export function useAtividadesWithOnlineRefresh(
   useEffect(() => {
     if (!shouldLoad) {
       setIsLoading(false)
-      return
+      return () => {
+        activeControllerRef.current?.abort()
+      }
     }
 
-    if (atividadesCache !== null) {
-      setAtividades(atividadesCache)
+    const cachedAtividades = atividadesCache?.userScope === userScope
+      ? atividadesCache.atividades
+      : null
+
+    if (cachedAtividades !== null) {
+      setAtividades(cachedAtividades)
       setIsLoading(false)
-      return
+      return () => {
+        activeControllerRef.current?.abort()
+      }
     }
 
+    setAtividades([])
     void fetchAtividades().catch((error) => {
       console.warn(`[${logContext}] Falha ao carregar atividades.`, error)
     })
-  }, [fetchAtividades, logContext, shouldLoad])
+
+    return () => {
+      requestSequenceRef.current += 1
+      activeControllerRef.current?.abort()
+      activeControllerRef.current = null
+    }
+  }, [fetchAtividades, logContext, shouldLoad, userScope])
 
   return {
     atividades,

@@ -14,7 +14,11 @@ interface ActivityProductsPageLocationState {
   packageProductKeys?: string[]
 }
 
-export function ActivityProductsPage() {
+interface ActivityProductsPageProps {
+  userScope: string
+}
+
+export function ActivityProductsPage({ userScope }: ActivityProductsPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { activityId, companyId } = useParams()
@@ -23,7 +27,7 @@ export function ActivityProductsPage() {
   const readOnlyPackageView = locationState?.readOnlyPackageView === true
   const packageProductKeys = locationState?.packageProductKeys ?? []
   const shouldLoadAtividades = selectedActivityFromNavigation === null
-  const { atividades, isLoading } = useAtividadesWithOnlineRefresh('ActivityProductsPage', {
+  const { atividades, isLoading } = useAtividadesWithOnlineRefresh(userScope, 'ActivityProductsPage', {
     enabled: shouldLoadAtividades,
   })
 

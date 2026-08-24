@@ -27,11 +27,14 @@ const getUserLabelFromStorage = () => {
 
 function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
+  const [activeUserScope, setActiveUserScope] = useState<string | null>(null)
   const [userLabel, setUserLabel] = useState(getUserLabelFromStorage)
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false)
   const [authError, setAuthError] = useState('')
   const handleLogoutSuccess = useCallback(() => {
+    clearAtividadesCache()
     setOfflineDataUserScope(null)
+    setActiveUserScope(null)
     localStorage.removeItem(AUTH_STORAGE_KEY)
     localStorage.removeItem(AUTH_USER_LABEL_STORAGE_KEY)
     setAuthStatus('unauthenticated')
@@ -56,21 +59,17 @@ function App() {
 
     clearAtividadesCache()
     setOfflineDataUserScope(userIdScope)
-    await removeOldSuccessfulSyncQueueItems(TWO_DAYS_IN_MS)
+    await removeOldSuccessfulSyncQueueItems(TWO_DAYS_IN_MS, userIdScope)
     localStorage.setItem(AUTH_STORAGE_KEY, 'true')
     localStorage.setItem(AUTH_USER_LABEL_STORAGE_KEY, nextUserLabel)
+    setActiveUserScope(userIdScope)
     setAuthStatus('authenticated')
     setUserLabel(nextUserLabel)
   }, [])
 
   useEffect(() => {
     const handleSessionInvalid = () => {
-      clearAtividadesCache()
-      setOfflineDataUserScope(null)
-      localStorage.removeItem(AUTH_STORAGE_KEY)
-      localStorage.removeItem(AUTH_USER_LABEL_STORAGE_KEY)
-      setAuthStatus('unauthenticated')
-      setUserLabel('')
+      handleLogoutSuccess()
       setAuthError('Sua sessão expirou. Faça login novamente.')
     }
 
@@ -78,7 +77,7 @@ function App() {
     return () => {
       window.removeEventListener(SESSION_INVALID_EVENT, handleSessionInvalid)
     }
-  }, [])
+  }, [handleLogoutSuccess])
 
   useEffect(() => {
     const restoreExistingSession = async () => {
@@ -97,6 +96,8 @@ function App() {
     try {
       setIsSubmittingLogin(true)
       setAuthError('')
+      // Invalida imediatamente dados e GETs iniciados pela sessão anterior.
+      clearAtividadesCache()
       await login({
         usuario: usuario.trim(),
         senha,
@@ -108,13 +109,13 @@ function App() {
         error instanceof Error
           ? error.message
           : 'Erro inesperado ao autenticar.'
-      setAuthStatus('unauthenticated')
+      handleLogoutSuccess()
       setAuthError(`Falha no login: ${errorMessage}`)
       throw error
     } finally {
       setIsSubmittingLogin(false)
     }
-  }, [establishAuthenticatedSession])
+  }, [establishAuthenticatedSession, handleLogoutSuccess])
 
   if (authStatus === 'checking') {
     return null
@@ -122,7 +123,11 @@ function App() {
 
   return (
     <main className="app-shell">
-      <ActivitySyncQueueProvider>
+      <ActivitySyncQueueProvider
+        key={activeUserScope ?? 'anonymous'}
+        enabled={authStatus === 'authenticated' && activeUserScope !== null}
+        userScope={activeUserScope}
+      >
         <Routes>
           <Route
             path="/login"
@@ -143,7 +148,7 @@ function App() {
                 onLogoutSuccess={handleLogoutSuccess}
                 userLabel={userLabel}
               >
-                <HomePage />
+                <HomePage userScope={activeUserScope ?? 'anonymous'} />
               </ProtectedRoute>
             )}
           />
@@ -156,7 +161,7 @@ function App() {
                 showHeader={false}
                 userLabel={userLabel}
               >
-                <ActivityProductsPage />
+                <ActivityProductsPage userScope={activeUserScope ?? 'anonymous'} />
               </ProtectedRoute>
             )}
           />
@@ -197,7 +202,6 @@ function ProtectedRoute({
     try {
       setIsSubmittingLogout(true)
       await logout()
-      clearAtividadesCache()
       onLogoutSuccess()
     } catch (error) {
       const errorMessage =

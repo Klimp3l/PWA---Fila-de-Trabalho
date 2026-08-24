@@ -84,18 +84,10 @@ export default defineConfig(({ mode }) => {
               urlPattern: ({ url }) =>
                 url.pathname.includes('/bdoserver2.7/odwctrl')
                 && url.searchParams.get('scriptFunction') === 'getAtividades',
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-atividades-cache',
-                networkTimeoutSeconds: 3,
-                cacheableResponse: {
-                  statuses: [200],
-                },
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 2,
-                },
-              },
+              // O snapshot offline já é persistido por usuário no IndexedDB.
+              // Cachear esta resposta no service worker mistura sessões, pois
+              // a chave HTTP não inclui o usuário autenticado via cookie.
+              handler: 'NetworkOnly',
             },
             {
               urlPattern: ({ url }) =>

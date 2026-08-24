@@ -25,10 +25,18 @@ const ActivitySyncQueueContext = createContext<ActivitySyncQueueContextValue | n
 
 interface ActivitySyncQueueProviderProps {
   children: ReactNode
+  enabled: boolean
+  userScope: string | null
 }
 
-export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProviderProps) {
+export function ActivitySyncQueueProvider({
+  children,
+  enabled,
+  userScope,
+}: ActivitySyncQueueProviderProps) {
   const toastRef = useRef<Toast | null>(null)
+  const isActiveRef = useRef(false)
+  const processAbortControllerRef = useRef<AbortController | null>(null)
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     if (typeof navigator === 'undefined') {
       return true
@@ -37,6 +45,16 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
   })
   const [processingSubmissionId, setProcessingSubmissionId] = useState<string | null>(null)
   const [syncQueueItems, setSyncQueueItems] = useState<ActivitySyncQueueItem[]>([])
+
+  useEffect(() => {
+    isActiveRef.current = enabled && userScope !== null
+
+    return () => {
+      isActiveRef.current = false
+      processAbortControllerRef.current?.abort()
+      processAbortControllerRef.current = null
+    }
+  }, [enabled, userScope])
 
   useEffect(() => {
     const handleOnline = () => {
@@ -57,8 +75,17 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
   }, [])
 
   useEffect(() => {
-    void loadActivitySyncQueueItems()
+    if (!enabled || userScope === null) {
+      return
+    }
+
+    let cancelled = false
+    void loadActivitySyncQueueItems(userScope)
       .then((items) => {
+        if (cancelled || !isActiveRef.current) {
+          return
+        }
+
         const recoveredItems = items.map((item) => (
           item.status === 'processing'
             ? { ...item, status: 'pending' as const, updatedAt: Date.now() }
@@ -67,15 +94,26 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
         setSyncQueueItems(recoveredItems)
         const recoveredFromProcessing = recoveredItems.filter((item) => item.status === 'pending')
         if (recoveredFromProcessing.length > 0) {
-          void Promise.all(recoveredFromProcessing.map(async (item) => upsertActivitySyncQueueItem(item)))
+          void Promise.all(recoveredFromProcessing.map(async (item) => upsertActivitySyncQueueItem(item, userScope)))
         }
       })
       .catch((error) => {
+        if (cancelled) {
+          return
+        }
         console.warn('[ActivitySyncQueueProvider] Falha ao carregar fila de sincronizacao.', error)
       })
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, userScope])
 
   const enqueueForSync = useCallback(async (item: ActivitySyncQueueItem) => {
+    if (!enabled || userScope === null || !isActiveRef.current) {
+      return
+    }
+
     const now = Date.now()
     const pendingItem: ActivitySyncQueueItem = {
       ...item,
@@ -93,8 +131,8 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
       }
       return [pendingItem, ...current]
     })
-    await upsertActivitySyncQueueItem(pendingItem)
-  }, [])
+    await upsertActivitySyncQueueItem(pendingItem, userScope)
+  }, [enabled, userScope])
 
   const markQueueItemAsError = useCallback(async (item: ActivitySyncQueueItem, message: string) => {
     const errorItem: ActivitySyncQueueItem = {
@@ -104,13 +142,15 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
       updatedAt: Date.now(),
     }
 
-    setSyncQueueItems((current) =>
-      current.map((queueItem) => (
-        queueItem.submissionId === item.submissionId ? errorItem : queueItem
-      ))
-    )
-    await upsertActivitySyncQueueItem(errorItem)
-  }, [])
+    if (isActiveRef.current) {
+      setSyncQueueItems((current) =>
+        current.map((queueItem) => (
+          queueItem.submissionId === item.submissionId ? errorItem : queueItem
+        ))
+      )
+    }
+    await upsertActivitySyncQueueItem(errorItem, userScope ?? undefined)
+  }, [userScope])
 
   const markQueueItemAsSuccess = useCallback(async (item: ActivitySyncQueueItem) => {
     const successItem: ActivitySyncQueueItem = {
@@ -120,13 +160,15 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
       updatedAt: Date.now(),
     }
 
-    setSyncQueueItems((current) =>
-      current.map((queueItem) => (
-        queueItem.submissionId === item.submissionId ? successItem : queueItem
-      ))
-    )
-    await upsertActivitySyncQueueItem(successItem)
-  }, [])
+    if (isActiveRef.current) {
+      setSyncQueueItems((current) =>
+        current.map((queueItem) => (
+          queueItem.submissionId === item.submissionId ? successItem : queueItem
+        ))
+      )
+    }
+    await upsertActivitySyncQueueItem(successItem, userScope ?? undefined)
+  }, [userScope])
 
   const markQueueItemAsProcessing = useCallback(async (item: ActivitySyncQueueItem) => {
     const processingItem: ActivitySyncQueueItem = {
@@ -135,20 +177,36 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
       errorMessage: null,
       updatedAt: Date.now(),
     }
-    setSyncQueueItems((current) =>
-      current.map((queueItem) => (
-        queueItem.submissionId === item.submissionId ? processingItem : queueItem
-      ))
-    )
-    await upsertActivitySyncQueueItem(processingItem)
+    if (isActiveRef.current) {
+      setSyncQueueItems((current) =>
+        current.map((queueItem) => (
+          queueItem.submissionId === item.submissionId ? processingItem : queueItem
+        ))
+      )
+    }
+    await upsertActivitySyncQueueItem(processingItem, userScope ?? undefined)
     return processingItem
-  }, [])
+  }, [userScope])
 
   const processQueueItem = useCallback(async (item: ActivitySyncQueueItem) => {
+    if (!enabled || userScope === null || !isActiveRef.current) {
+      return
+    }
+
+    const controller = new AbortController()
+    processAbortControllerRef.current = controller
     setProcessingSubmissionId(item.submissionId)
     try {
       const processingItem = await markQueueItemAsProcessing(item)
-      const response = await updateEncaminhamentos(processingItem.payload)
+      if (controller.signal.aborted || !isActiveRef.current) {
+        return
+      }
+
+      const response = await updateEncaminhamentos(processingItem.payload, undefined, controller.signal)
+      if (controller.signal.aborted || !isActiveRef.current) {
+        return
+      }
+
       const hasError = response?.error !== ''
 
       if (hasError) {
@@ -171,22 +229,33 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
 
       await markQueueItemAsSuccess(processingItem)
     } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+
       console.error('[ActivitySyncQueueProvider] Falha ao enviar encaminhamentos.', error)
       const message = error instanceof Error ? error.message : 'Nao foi possivel enviar os encaminhamentos.'
-      await markQueueItemAsError(item, message)
-      toastRef.current?.show({
-        severity: 'error',
-        summary: 'Falha ao enviar',
-        detail: message,
-        life: 7000,
-      })
+      if (isActiveRef.current) {
+        await markQueueItemAsError(item, message)
+        toastRef.current?.show({
+          severity: 'error',
+          summary: 'Falha ao enviar',
+          detail: message,
+          life: 7000,
+        })
+      }
     } finally {
-      setProcessingSubmissionId(null)
+      if (processAbortControllerRef.current === controller) {
+        processAbortControllerRef.current = null
+      }
+      if (isActiveRef.current) {
+        setProcessingSubmissionId(null)
+      }
     }
-  }, [markQueueItemAsError, markQueueItemAsProcessing, markQueueItemAsSuccess])
+  }, [enabled, markQueueItemAsError, markQueueItemAsProcessing, markQueueItemAsSuccess, userScope])
 
   useEffect(() => {
-    if (!isOnline) {
+    if (!enabled || userScope === null || !isOnline) {
       return
     }
 
@@ -200,14 +269,14 @@ export function ActivitySyncQueueProvider({ children }: ActivitySyncQueueProvide
     }
 
     void processQueueItem(nextPendingItem)
-  }, [isOnline, processingSubmissionId, processQueueItem, syncQueueItems])
+  }, [enabled, isOnline, processingSubmissionId, processQueueItem, syncQueueItems, userScope])
 
   const retryQueueItem = useCallback(async (item: ActivitySyncQueueItem) => {
-    if (processingSubmissionId !== null) {
+    if (!enabled || userScope === null || processingSubmissionId !== null) {
       return
     }
     await enqueueForSync(item)
-  }, [enqueueForSync, processingSubmissionId])
+  }, [enabled, enqueueForSync, processingSubmissionId, userScope])
 
   const contextValue = useMemo<ActivitySyncQueueContextValue>(() => ({
     syncQueueItems,
