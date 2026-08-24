@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { loadAtividadesWithOfflineFallback } from '../services/activityData'
-import type { AtividadeComProdutos } from '../types/workflow'
+import type { AtividadeComProdutos, CamposDigitais } from '../types/workflow'
 
 let atividadesCache: AtividadeComProdutos[] | null = null
 
@@ -11,6 +11,7 @@ export const clearAtividadesCache = () => {
 export const syncActivitySelectionsInCache = (
   activityScopeKey: string,
   selectionsByProduct: Record<string, number | null>,
+  fieldValuesByProduct: Record<string, CamposDigitais>,
 ) => {
   if (atividadesCache === null) {
     return
@@ -41,6 +42,10 @@ export const syncActivitySelectionsInCache = (
         return {
           ...produto,
           idwfatividaderealizada: selectionsByProduct[productKey] ?? null,
+          camposDigitais: {
+            ...(produto.camposDigitais ?? {}),
+            ...(fieldValuesByProduct[productKey] ?? {}),
+          },
         }
       }),
     }

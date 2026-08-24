@@ -1,16 +1,69 @@
-import type { AtividadeElegivelProduto, AtividadeProdutoColumn, ProdutoAtividade } from '../../types/workflow'
+import type {
+  AtividadeElegivelProduto,
+  AtividadeProdutoColumn,
+  CampoDigitalValue,
+  ProdutoAtividade,
+} from '../../types/workflow'
 import { DEFAULT_PRODUCT_IMAGE } from './config'
 
 type FieldFormatter = (value: unknown) => string
-type LocalFieldType = 'string' | 'number' | 'currency'
+type LocalFieldType = 'string' | 'number' | 'currency' | 'date'
 
 export const getProdutoFieldValue = (produto: ProdutoAtividade, field: string): unknown =>
-  produto[field as keyof ProdutoAtividade]
+  produto.camposDigitais && Object.prototype.hasOwnProperty.call(produto.camposDigitais, field)
+    ? produto.camposDigitais[field]
+    : produto[field as keyof ProdutoAtividade]
 
 const formatCurrency = (value: number | null) =>
   typeof value === 'number' && Number.isFinite(value)
     ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
     : '-'
+
+const createValidDate = (year: number, month: number, day: number) => {
+  const date = new Date(year, month - 1, day)
+  return date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    ? date
+    : null
+}
+
+export const parseDateValue = (value: unknown): Date | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalizedValue = value.trim()
+  const isoMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/)
+  if (isoMatch) {
+    return createValidDate(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]))
+  }
+
+  const brazilianMatch = normalizedValue.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (brazilianMatch) {
+    return createValidDate(Number(brazilianMatch[3]), Number(brazilianMatch[2]), Number(brazilianMatch[1]))
+  }
+
+  const compactMatch = normalizedValue.match(/^(\d{2})(\d{2})(\d{4})$/)
+  if (compactMatch) {
+    return createValidDate(Number(compactMatch[3]), Number(compactMatch[2]), Number(compactMatch[1]))
+  }
+
+  return null
+}
+
+export const formatDateValue = (value: unknown) => {
+  const date = parseDateValue(value)
+  if (!date) {
+    return String(value ?? '')
+  }
+
+  return `${`${date.getDate()}`.padStart(2, '0')}/${`${date.getMonth() + 1}`.padStart(2, '0')}/${date.getFullYear()}`
+}
 
 const FIELD_FORMATTERS: Record<LocalFieldType, FieldFormatter> = {
   string: (value) => String(value ?? ''),
@@ -19,6 +72,7 @@ const FIELD_FORMATTERS: Record<LocalFieldType, FieldFormatter> = {
     return Number.isFinite(numeric) ? new Intl.NumberFormat('pt-BR').format(numeric) : '-'
   },
   currency: (value) => formatCurrency(typeof value === 'number' ? value : Number(value)),
+  date: formatDateValue,
 }
 
 const resolveFieldType = (fieldConfig?: AtividadeProdutoColumn): LocalFieldType => {
@@ -28,6 +82,9 @@ const resolveFieldType = (fieldConfig?: AtividadeProdutoColumn): LocalFieldType 
   }
   if (configuredType === 'currency' || configuredType === 'money') {
     return 'currency'
+  }
+  if (configuredType === 'date' || fieldConfig?.inputType === 'date') {
+    return 'date'
   }
   return 'string'
 }
@@ -75,6 +132,59 @@ export const toDropdownActivityId = (value: unknown): number | null => {
   return null
 }
 
+const parseDefaultBoolean = (value: string): boolean | null => {
+  const normalizedValue = value.trim().toLowerCase()
+  if (['true', '1', 's', 'sim'].includes(normalizedValue)) {
+    return true
+  }
+  if (['false', '0', 'n', 'nao', 'não'].includes(normalizedValue)) {
+    return false
+  }
+  return null
+}
+
+export const resolveActivityDigitalDefault = (
+  atividadeElegivel: AtividadeElegivelProduto | undefined,
+  columns: Record<string, AtividadeProdutoColumn>,
+): { field: string, value: CampoDigitalValue } | null => {
+  const configuredFieldName = atividadeElegivel?.nomeCampoDigital?.trim() ?? ''
+  const field = Object.keys(columns).find(
+    (columnName) => columnName.toLowerCase() === configuredFieldName.toLowerCase(),
+  ) ?? ''
+  const fieldConfig = columns[field]
+
+  if (!configuredFieldName || !field || !fieldConfig?.inputType) {
+    return null
+  }
+
+  const rawValue = atividadeElegivel?.valorDefaultCampoDigital ?? ''
+  const inputType = fieldConfig.inputType
+
+  if (inputType === 'inputNumber') {
+    const normalizedValue = rawValue.trim().replace(',', '.')
+    const numericValue = normalizedValue === '' ? null : Number(normalizedValue)
+    return { field, value: numericValue !== null && Number.isFinite(numericValue) ? numericValue : null }
+  }
+
+  if (inputType === 'date') {
+    const parsedDate = parseDateValue(rawValue)
+    return { field, value: parsedDate ? formatDateValue(parsedDate) : '' }
+  }
+
+  if (inputType === 'boolean') {
+    return { field, value: parseDefaultBoolean(rawValue) }
+  }
+
+  if (inputType === 'multipleSelect') {
+    return {
+      field,
+      value: rawValue.split(',').map((item) => item.trim()).filter(Boolean),
+    }
+  }
+
+  return { field, value: rawValue }
+}
+
 export const compareFieldValues = (
   fieldConfig: AtividadeProdutoColumn | undefined,
   first: unknown,
@@ -96,6 +206,14 @@ export const compareFieldValues = (
 
   if (fieldType === 'number' || fieldType === 'currency') {
     return Number(first) - Number(second)
+  }
+
+  if (fieldType === 'date') {
+    const firstDate = parseDateValue(first)
+    const secondDate = parseDateValue(second)
+    if (firstDate && secondDate) {
+      return firstDate.getTime() - secondDate.getTime()
+    }
   }
 
   return String(first).localeCompare(String(second), 'pt-BR', {

@@ -54,6 +54,13 @@ export interface EncaminhamentoUpdateItem {
   idwfocorrencia: number
   idwfatividadeencaminhamento: number
   observacao: string
+  datavalidade?: string
+  qtdproduzido?: number
+  qtdestoquecorreta?: number
+  qtdrevisada?: number | null
+  datavencimentorevisada?: string
+  datavencimento?: string
+  saldoestoquedataproxima?: number | null
   idwffilatrabalho: number
 }
 

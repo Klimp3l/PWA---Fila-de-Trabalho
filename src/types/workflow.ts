@@ -1,7 +1,12 @@
 export interface AtividadeElegivelProduto {
   idwfatividaderealizada: number
   atividaderealizada: string
+  nomeCampoDigital?: string | null
+  valorDefaultCampoDigital?: string | null
 }
+
+export type CampoDigitalValue = string | number | boolean | string[] | null
+export type CamposDigitais = Record<string, CampoDigitalValue>
 
 export interface AtividadeProdutoColumn {
   label: string
@@ -73,6 +78,12 @@ export interface ProdutoAtividade {
   datavalidade?: string
   qtdproduzido?: number | null
   qtdestoquecorreta?: number | null
+  qtdrevisada?: number | null
+  datavencimentorevisada?: string
+  saldoestoquedataproxima?: number | null
+  diasparavencimento?: number | null
+  qtdvendidoaposconferencia?: number | null
+  camposDigitais?: CamposDigitais
   /** Enviado pela API em alguns fluxos; usado para imagem do produto na lista. */
   urlImagem?: string
 }
@@ -102,6 +113,7 @@ export interface ActivityProductSelectionsSnapshot {
    * Valor: mapa da chave do produto para `idwfatividaderealizada` escolhido.
    */
   selectionsByActivityId: Record<string, Record<string, number | null>>
+  fieldValuesByActivityId?: Record<string, Record<string, CamposDigitais>>
 }
 
 export interface ActivityProductListPreferences {
@@ -129,6 +141,11 @@ export interface EncaminhamentoSyncPayloadItem {
   qtdproduzido?: number
   qtdestoquecorreta?: number
   datavalidade?: string
+  qtdrevisada?: number | null
+  datavencimentorevisada?: string
+  datavencimento?: string
+  saldoestoquedataproxima?: number | null
+  camposDigitais?: CamposDigitais
   idwffilatrabalho: number
 }
 
@@ -151,6 +168,14 @@ export interface ActivitySyncQueueProductSnapshot {
   observacao: string
   observacao2?: string
   observacao3?: string
+  datavalidade?: string
+  qtdproduzido?: number
+  qtdestoquecorreta?: number
+  qtdrevisada?: number | null
+  datavencimentorevisada?: string
+  datavencimento?: string
+  saldoestoquedataproxima?: number | null
+  camposDigitais?: CamposDigitais
 }
 
 export interface ActivitySyncQueueItem {

@@ -18,6 +18,7 @@ import type {
   ProdutoEan,
   ProdutoAtividade,
 } from '../types/workflow'
+import { resolveActivityDigitalDefault } from '../components/product-list/utils'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -62,6 +63,8 @@ const applyLocalSelections = (
     const scopeKey = getActivityScopeKey(atividade)
     const selectionsForActivity = selectionsSnapshot.selectionsByActivityId[scopeKey]
       ?? selectionsSnapshot.selectionsByActivityId[String(atividade.idwfatividade)]
+    const fieldValuesForActivity = selectionsSnapshot.fieldValuesByActivityId?.[scopeKey]
+      ?? selectionsSnapshot.fieldValuesByActivityId?.[String(atividade.idwfatividade)]
 
     if (!selectionsForActivity) {
       return atividade
@@ -76,9 +79,27 @@ const applyLocalSelections = (
           return produto
         }
 
+        const selectedActivityId = selectionsForActivity[productKey] ?? null
+        const selectedActivity = atividade.atividadeselegiveis.find(
+          (item) => item.idwfatividaderealizada === selectedActivityId,
+        )
+        const digitalDefault = resolveActivityDigitalDefault(selectedActivity, atividade.columns)
+        const savedFieldValues = fieldValuesForActivity?.[productKey]
+
         return {
           ...produto,
-          idwfatividaderealizada: selectionsForActivity[productKey] ?? null,
+          idwfatividaderealizada: selectedActivityId,
+          camposDigitais: savedFieldValues
+            ? {
+                ...(produto.camposDigitais ?? {}),
+                ...savedFieldValues,
+              }
+            : digitalDefault
+            ? {
+                ...(produto.camposDigitais ?? {}),
+                [digitalDefault.field]: digitalDefault.value,
+              }
+            : produto.camposDigitais,
         }
       }),
     }
@@ -99,6 +120,12 @@ const toAtividadeElegivelProduto = (value: unknown): AtividadeElegivelProduto | 
   return {
     idwfatividaderealizada,
     atividaderealizada: String(value.atividaderealizada ?? ''),
+    nomeCampoDigital: typeof value.nomecampodigital === 'string'
+      ? value.nomecampodigital.trim() || null
+      : (typeof value.nomeCampoDigital === 'string' ? value.nomeCampoDigital.trim() || null : null),
+    valorDefaultCampoDigital: value.valordefaultcampodigital == null && value.valorDefaultCampoDigital == null
+      ? null
+      : String(value.valordefaultcampodigital ?? value.valorDefaultCampoDigital),
   }
 }
 
@@ -167,7 +194,10 @@ const toAtividadeProdutoColumnsFromGroups = (value: unknown): Record<string, Ati
   return columns
 }
 
-const toProduto = (value: unknown): ProdutoAtividade | null => {
+const toProduto = (
+  value: unknown,
+  columns: Record<string, AtividadeProdutoColumn>,
+): ProdutoAtividade | null => {
   if (!isRecord(value)) {
     return null
   }
@@ -180,6 +210,27 @@ const toProduto = (value: unknown): ProdutoAtividade | null => {
   if (idwffilatrabalho === null || idwfocorrencia === null || idempresa === null || idproduto === null) {
     return null
   }
+
+  const camposDigitais = Object.entries(columns).reduce<NonNullable<ProdutoAtividade['camposDigitais']>>(
+    (accumulator, [field, config]) => {
+      if (!config.inputType || !(field in value)) {
+        return accumulator
+      }
+
+      const fieldValue = value[field]
+      if (
+        fieldValue === null
+        || typeof fieldValue === 'string'
+        || typeof fieldValue === 'number'
+        || typeof fieldValue === 'boolean'
+        || (Array.isArray(fieldValue) && fieldValue.every((item) => typeof item === 'string'))
+      ) {
+        accumulator[field] = fieldValue
+      }
+      return accumulator
+    },
+    {},
+  )
 
   return {
     idwffilatrabalho,
@@ -227,6 +278,12 @@ const toProduto = (value: unknown): ProdutoAtividade | null => {
     datavalidade: String(value.datavalidade ?? ''),
     qtdproduzido: toNumberOrNull(value.qtdproduzido),
     qtdestoquecorreta: toNumberOrNull(value.qtdestoquecorreta),
+    qtdrevisada: toNumberOrNull(value.qtdrevisada),
+    datavencimentorevisada: String(value.datavencimentorevisada ?? ''),
+    saldoestoquedataproxima: toNumberOrNull(value.saldoestoquedataproxima),
+    diasparavencimento: toNumberOrNull(value.diasparavencimento),
+    qtdvendidoaposconferencia: toNumberOrNull(value.qtdvendidoaposconferencia),
+    camposDigitais,
     urlImagem: typeof value.urlImagem === 'string' ? value.urlImagem : undefined,
   }
 }
@@ -240,6 +297,7 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
   const idwfprocesso = toNumberOrNull(value.idwfprocesso)
   const idwfatividade = toNumberOrNull(value.idwfatividade)
   const produtosRaw = Array.isArray(value.produtos) ? value.produtos : (Array.isArray(value.filas) ? value.filas : [])
+  const columns = toAtividadeProdutoColumnsFromGroups(value.groupcolumns)
 
   if (idempresa === null || idwfprocesso === null || idwfatividade === null) {
     return null
@@ -256,10 +314,10 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
       .map(toAtividadeElegivelProduto)
       .filter((atividade): atividade is AtividadeElegivelProduto => atividade !== null),
     produtos: produtosRaw
-      .map(toProduto)
+      .map((produto) => toProduto(produto, columns))
       .filter((produto): produto is ProdutoAtividade => produto !== null),
     groupcolumns: Array.isArray(value.groupcolumns) ? value.groupcolumns : [],
-    columns: toAtividadeProdutoColumnsFromGroups(value.groupcolumns),
+    columns,
   }
 }
 
@@ -278,6 +336,7 @@ const extractRawAtividades = (value: unknown): unknown[] => {
 export const saveActivityProductSelections = async (
   activityScopeKey: string,
   selectionsByProduct: Record<string, number | null>,
+  fieldValuesByProduct: Record<string, NonNullable<ProdutoAtividade['camposDigitais']>>,
 ) => {
   const currentSnapshot = await activityProductSelectionRepository.load() ?? createEmptySelectionsSnapshot()
   const nextSnapshot: ActivityProductSelectionsSnapshot = {
@@ -285,6 +344,10 @@ export const saveActivityProductSelections = async (
     selectionsByActivityId: {
       ...currentSnapshot.selectionsByActivityId,
       [activityScopeKey]: selectionsByProduct,
+    },
+    fieldValuesByActivityId: {
+      ...(currentSnapshot.fieldValuesByActivityId ?? {}),
+      [activityScopeKey]: fieldValuesByProduct,
     },
   }
 
@@ -329,11 +392,14 @@ export const removeActivityProductSelections = async (
   }
 
   const nextSelections = { ...currentSnapshot.selectionsByActivityId }
+  const nextFieldValues = { ...(currentSnapshot.fieldValuesByActivityId ?? {}) }
   delete nextSelections[activityScopeKey]
+  delete nextFieldValues[activityScopeKey]
 
   const nextSnapshot: ActivityProductSelectionsSnapshot = {
     updatedAt: Date.now(),
     selectionsByActivityId: nextSelections,
+    fieldValuesByActivityId: nextFieldValues,
   }
 
   await activityProductSelectionRepository.save(nextSnapshot)

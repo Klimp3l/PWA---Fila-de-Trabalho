@@ -35,6 +35,8 @@ import * as XLSX from 'xlsx-js-style'
 import type {
   AtividadeComProdutos,
   AtividadeProdutoColumn,
+  CampoDigitalValue,
+  CamposDigitais,
   ProdutoAtividade,
 } from '../types/workflow'
 import { BarcodeScannerDialog } from './BarcodeScannerDialog'
@@ -58,9 +60,12 @@ import {
 } from './product-list/config'
 import {
   compareFieldValues,
+  formatDateValue,
   formatFieldValue,
   getAtividadeLabel,
   getProdutoFieldValue,
+  parseDateValue,
+  resolveActivityDigitalDefault,
   resolveProductImage,
   toDropdownActivityId,
 } from './product-list/utils'
@@ -83,8 +88,8 @@ interface ProductCardItemProps {
   activityOptions: Array<{ label: string; value: number }>
   visibleFields: string[]
   fieldConfigByKey: Record<string, AtividadeProdutoColumn>
-  specialFieldValues: Record<string, string | number | boolean | null>
-  onSpecialFieldChange: (productKey: string, field: string, value: string | number | boolean | null) => void
+  specialFieldValues: CamposDigitais
+  onSpecialFieldChange: (productKey: string, field: string, value: CampoDigitalValue) => void
   onBarcodeChange: (productKey: string, barcode: string) => void
   onToggleSelect: (productKey: string, checked: boolean) => void
   onActivityChange: (productKey: string, activityId: number | null) => void
@@ -278,22 +283,43 @@ const ProductCardItem = memo(function ProductCardItem({
                     ) : null}
                     {fieldConfigByKey[field]?.inputType === 'date' ? (
                       <Calendar
-                        value={(() => {
-                          const rawValue = specialFieldValues[field] ?? getProdutoFieldValue(produto, field)
-                          if (typeof rawValue !== 'string' || !rawValue.trim()) {
-                            return null
-                          }
-                          const date = new Date(rawValue)
-                          return Number.isNaN(date.getTime()) ? null : date
-                        })()}
+                        value={parseDateValue(specialFieldValues[field] ?? getProdutoFieldValue(produto, field))}
                         onChange={(event) => {
                           const dateValue = event.value instanceof Date && !Number.isNaN(event.value.getTime())
-                            ? `${event.value.getFullYear()}-${`${event.value.getMonth() + 1}`.padStart(2, '0')}-${`${event.value.getDate()}`.padStart(2, '0')}`
+                            ? formatDateValue(event.value)
                             : ''
                           onSpecialFieldChange(productKey, field, dateValue)
                         }}
-                        dateFormat="yy-mm-dd"
+                        dateFormat="dd/mm/yy"
                         showIcon
+                        disabled={readOnly}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'select' ? (
+                      <Dropdown
+                        value={typeof specialFieldValues[field] === 'string' ? specialFieldValues[field] : null}
+                        options={fieldConfigByKey[field].options ?? []}
+                        onChange={(event: DropdownChangeEvent) => onSpecialFieldChange(productKey, field, String(event.value ?? ''))}
+                        disabled={readOnly}
+                        showClear
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'multipleSelect' ? (
+                      <MultiSelect
+                        value={Array.isArray(specialFieldValues[field]) ? specialFieldValues[field] : []}
+                        options={fieldConfigByKey[field].options ?? []}
+                        onChange={(event: MultiSelectChangeEvent) => onSpecialFieldChange(
+                          productKey,
+                          field,
+                          Array.isArray(event.value) ? event.value.map(String) : [],
+                        )}
+                        disabled={readOnly}
+                      />
+                    ) : null}
+                    {fieldConfigByKey[field]?.inputType === 'boolean' ? (
+                      <InputSwitch
+                        checked={specialFieldValues[field] === true}
+                        onChange={(event: InputSwitchChangeEvent) => onSpecialFieldChange(productKey, field, Boolean(event.value))}
                         disabled={readOnly}
                       />
                     ) : null}
@@ -541,7 +567,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   const deferredSearchValue = useDeferredValue(searchValue)
   const [sortField, setSortField] = useState('produto')
   const [sortDirection, setSortDirection] = useState<1 | -1>(1)
-  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, Record<string, string | number | boolean | null>>>({})
+  const [specialFieldValuesByProduct, setSpecialFieldValuesByProduct] = useState<Record<string, CamposDigitais>>({})
   const [selectedBarcodesByProduct, setSelectedBarcodesByProduct] = useState<Record<string, string>>({})
   const [barcodeSearchMode, setBarcodeSearchMode] = useState<BarcodeSearchMode>('manual')
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false)
@@ -828,13 +854,24 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       accumulator[getProdutoAtividadeKey(produto)] = produto.idwfatividaderealizada
       return accumulator
     }, {})
-    const initialSpecialFieldValues = products.reduce<Record<string, Record<string, string | number | boolean | null>>>((accumulator, produto) => {
+    const editableFieldKeys = Object.entries(fieldConfigByKey)
+      .filter(([, config]) => Boolean(config.inputType))
+      .map(([field]) => field)
+    const initialSpecialFieldValues = products.reduce<Record<string, CamposDigitais>>((accumulator, produto) => {
       const productKey = getProdutoAtividadeKey(produto)
-      accumulator[productKey] = {
-        datavalidade: produto.datavalidade ?? '',
-        qtdproduzido: produto.qtdproduzido ?? null,
-        qtdestoquecorreta: produto.qtdestoquecorreta ?? null,
-      }
+      accumulator[productKey] = editableFieldKeys.reduce<CamposDigitais>((fieldValues, field) => {
+        const value = getProdutoFieldValue(produto, field)
+        if (
+          value === null
+          || typeof value === 'string'
+          || typeof value === 'number'
+          || typeof value === 'boolean'
+          || (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+        ) {
+          fieldValues[field] = value
+        }
+        return fieldValues
+      }, {})
       return accumulator
     }, {})
 
@@ -842,7 +879,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     setSpecialFieldValuesByProduct(initialSpecialFieldValues)
     setSelectedProductKeys([])
     setBulkActivityId(defaultBulkActivityId)
-  }, [defaultBulkActivityId, products])
+  }, [defaultBulkActivityId, fieldConfigByKey, products])
 
   useEffect(() => {
     const availableValues = new Set(searchableFieldOptions.map((option) => option.value))
@@ -1068,10 +1105,18 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
     const activityScopeKey = getActivityScopeKey(atividade)
     saveSelectionsTimeoutRef.current = setTimeout(() => {
-      void saveActivityProductSelections(activityScopeKey, selectedActivitiesByProduct).catch((error) => {
+      void saveActivityProductSelections(
+        activityScopeKey,
+        selectedActivitiesByProduct,
+        specialFieldValuesByProduct,
+      ).catch((error) => {
         console.warn('[ProductList] Falha ao persistir encaminhamentos locais da atividade.', error)
       })
-      syncActivitySelectionsInCache(activityScopeKey, selectedActivitiesByProduct)
+      syncActivitySelectionsInCache(
+        activityScopeKey,
+        selectedActivitiesByProduct,
+        specialFieldValuesByProduct,
+      )
     }, 200)
 
     return () => {
@@ -1080,7 +1125,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         saveSelectionsTimeoutRef.current = null
       }
     }
-  }, [atividade, selectedActivitiesByProduct])
+  }, [atividade, selectedActivitiesByProduct, specialFieldValuesByProduct])
 
   const isForwardedProduct = useCallback((produto: ProdutoAtividade) => {
     const productKey = getProdutoAtividadeKey(produto)
@@ -1411,12 +1456,38 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     })
   }, [])
 
+  const applyActivityDigitalDefault = useCallback((productKeys: string[], activityId: number | null) => {
+    if (activityId === null) {
+      return
+    }
+
+    const selectedActivity = activityEligibleItems.find(
+      (item) => item.idwfatividaderealizada === activityId,
+    )
+    const digitalDefault = resolveActivityDigitalDefault(selectedActivity, fieldConfigByKey)
+    if (!digitalDefault) {
+      return
+    }
+
+    setSpecialFieldValuesByProduct((current) => {
+      const next = { ...current }
+      productKeys.forEach((productKey) => {
+        next[productKey] = {
+          ...(current[productKey] ?? {}),
+          [digitalDefault.field]: digitalDefault.value,
+        }
+      })
+      return next
+    })
+  }, [activityEligibleItems, fieldConfigByKey])
+
   const changeProductActivity = useCallback((productKey: string, activityId: number | null) => {
     setSelectedActivitiesByProduct((current) => ({
       ...current,
       [productKey]: activityId,
     }))
-  }, [])
+    applyActivityDigitalDefault([productKey], activityId)
+  }, [applyActivityDigitalDefault])
 
   const toggleAllSelection = (checked: boolean) => {
     setSelectedProductKeys((current) => {
@@ -1448,6 +1519,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       })
       return next
     })
+    applyActivityDigitalDefault(
+      selectedKeys,
+      bulkActivityId === NONE_ACTIVITY_OPTION_VALUE ? null : bulkActivityId,
+    )
 
     setSelectedProductKeys((current) => current.filter((productKey) => !selectedKeys.includes(productKey)))
 
@@ -1469,7 +1544,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [products, selectedActivitiesByProduct],
   )
 
-  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: string | number | boolean | null) => {
+  const handleSpecialFieldChange = useCallback((productKey: string, field: string, value: CampoDigitalValue) => {
     setSpecialFieldValuesByProduct((current) => ({
       ...current,
       [productKey]: {
@@ -1497,9 +1572,17 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         const specialValues = specialFieldValuesByProduct[productKey] ?? {}
         return {
           ...produto,
+          camposDigitais: {
+            ...(produto.camposDigitais ?? {}),
+            ...specialValues,
+          },
           datavalidade: typeof specialValues.datavalidade === 'string' ? specialValues.datavalidade : (produto.datavalidade ?? ''),
           qtdproduzido: typeof specialValues.qtdproduzido === 'number' ? specialValues.qtdproduzido : (produto.qtdproduzido ?? null),
           qtdestoquecorreta: typeof specialValues.qtdestoquecorreta === 'number' ? specialValues.qtdestoquecorreta : (produto.qtdestoquecorreta ?? null),
+          qtdrevisada: typeof specialValues.qtdrevisada === 'number' ? specialValues.qtdrevisada : (produto.qtdrevisada ?? null),
+          datavencimentorevisada: typeof specialValues.datavencimentorevisada === 'string'
+            ? specialValues.datavencimentorevisada
+            : (produto.datavencimentorevisada ?? ''),
         }
       }),
     })
