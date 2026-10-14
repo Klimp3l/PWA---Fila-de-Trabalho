@@ -37,7 +37,7 @@ export function HomePage({ userScope }: HomePageProps) {
   const { atividades, isLoading, reloadAtividades } = useAtividadesWithOnlineRefresh(userScope, 'HomePage')
   const navigate = useNavigate()
   const toastRef = useRef<Toast | null>(null)
-  const { syncQueueItems, processingSubmissionId, enqueueForSync, retryQueueItem } = useActivitySyncQueue()
+  const { syncQueueItems, processingSubmissionIds, enqueueForSync, retryQueueItem } = useActivitySyncQueue()
   const [enqueuingActivityKey, setEnqueuingActivityKey] = useState<string | null>(null)
   const [visibleProcessingsCount, setVisibleProcessingsCount] = useState(PROCESSINGS_PAGE_SIZE)
   const [optimisticRemovedProductKeysByActivity, setOptimisticRemovedProductKeysByActivity] = useState<Record<string, Set<string>>>({})
@@ -276,8 +276,8 @@ export function HomePage({ userScope }: HomePageProps) {
                                 event.stopPropagation()
                                 void handleRetryQueueItem(item)
                               }}
-                              loading={processingSubmissionId === item.submissionId}
-                              disabled={processingSubmissionId !== null}
+                              loading={processingSubmissionIds.includes(item.submissionId)}
+                              disabled={processingSubmissionIds.includes(item.submissionId)}
                             />
                           )}
                         </div>

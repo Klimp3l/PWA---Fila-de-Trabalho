@@ -102,6 +102,12 @@ export default defineConfig(({ mode }) => {
               handler: 'NetworkOnly',
             },
             {
+              urlPattern: ({ url }) =>
+                url.pathname.includes('/bdoserver2.7/odwctrl')
+                && url.searchParams.get('scriptFunction') === 'update',
+              handler: 'NetworkOnly',
+            },
+            {
               urlPattern: /\/bdoserver2\.7\/odwctrl/,
               handler: 'NetworkFirst',
               options: {

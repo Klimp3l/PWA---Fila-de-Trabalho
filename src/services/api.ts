@@ -238,23 +238,24 @@ export const getInfoUsuario = async (
   return toUsuarioInfo(firstRecord)
 }
 
+const KEEP_ALIVE_MAX_BODY_BYTES = 60_000
+
 export const updateEncaminhamentos = async (
   payload: EncaminhamentoUpdatePayload,
   baseUrl = API_BASE_URL,
-  signal?: AbortSignal,
 ): Promise<EncaminhamentoUpdateResponse | null> => {
   const body = new URLSearchParams({
     wffilatrabalho: JSON.stringify(payload),
-  })
+  }).toString()
 
   const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + '&scriptFunction=update', {
     method: 'POST',
     credentials: 'include',
+    keepalive: body.length <= KEEP_ALIVE_MAX_BODY_BYTES,
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     },
     body,
-    signal,
   })
 
   const parsed = await parseJson(response)
