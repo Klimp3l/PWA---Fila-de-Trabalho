@@ -29,6 +29,11 @@ export interface AtividadeProdutoGroupColumn {
   itens: AtividadeProdutoGroupColumnItem[]
 }
 
+export interface CampoUsoAplicacao {
+  campo: string
+  visual: boolean
+}
+
 export interface ProdutoEan {
   ean: string
   quantidade: number | null
@@ -99,6 +104,8 @@ export interface AtividadeComProdutos {
   produtos: ProdutoAtividade[]
   groupcolumns?: AtividadeProdutoGroupColumn[]
   columns: Record<string, AtividadeProdutoColumn>
+  /** Nulo ou vazio libera todas as colunas. Com itens, só essas colunas entram no aplicativo. */
+  camposUsoAplicacao?: CampoUsoAplicacao[] | null
 }
 
 export interface ActivitySnapshot {

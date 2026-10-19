@@ -2,9 +2,10 @@ import type {
   AtividadeElegivelProduto,
   AtividadeProdutoColumn,
   CampoDigitalValue,
+  CampoUsoAplicacao,
   ProdutoAtividade,
 } from '../../types/workflow'
-import { DEFAULT_PRODUCT_IMAGE } from './config'
+import { DEFAULT_PRODUCT_IMAGE, PINNED_COLUMN_KEYS } from './config'
 
 type FieldFormatter = (value: unknown) => string
 type LocalFieldType = 'string' | 'number' | 'currency' | 'date'
@@ -220,4 +221,86 @@ export const compareFieldValues = (
     sensitivity: 'base',
     numeric: true,
   })
+}
+
+export interface EffectiveActivityColumns {
+  columns: Record<string, AtividadeProdutoColumn>
+  policyActive: boolean
+  defaultVisibleFieldKeys: string[]
+}
+
+const withPinnedColumnFlags = (
+  columns: Record<string, AtividadeProdutoColumn>,
+): Record<string, AtividadeProdutoColumn> => {
+  const nextColumns = { ...columns }
+
+  PINNED_COLUMN_KEYS.forEach((key) => {
+    const column = nextColumns[key]
+    if (!column) {
+      return
+    }
+
+    nextColumns[key] = {
+      ...column,
+      searchable: true,
+      sortable: true,
+    }
+  })
+
+  return nextColumns
+}
+
+export const resolveEffectiveColumns = (
+  columns: Record<string, AtividadeProdutoColumn>,
+  camposUsoAplicacao?: CampoUsoAplicacao[] | null,
+): EffectiveActivityColumns => {
+  if (!camposUsoAplicacao?.length) {
+    return {
+      columns: withPinnedColumnFlags(columns),
+      policyActive: false,
+      defaultVisibleFieldKeys: [],
+    }
+  }
+
+  const columnsByKey = new Map(
+    Object.entries(columns).map(([key, column]) => [key.toLowerCase(), [key, column] as const]),
+  )
+  const nextColumns: Record<string, AtividadeProdutoColumn> = {}
+  const defaultVisibleFieldKeys: string[] = []
+
+  camposUsoAplicacao.forEach((item) => {
+    const match = columnsByKey.get(item.campo.trim().toLowerCase())
+    if (!match || nextColumns[match[0]]) {
+      return
+    }
+
+    const [key, column] = match
+    const visual = item.visual === true
+    nextColumns[key] = {
+      ...column,
+      defaultVisible: visual,
+    }
+    if (visual) {
+      defaultVisibleFieldKeys.push(key)
+    }
+  })
+
+  PINNED_COLUMN_KEYS.forEach((pinnedKey) => {
+    if (nextColumns[pinnedKey]) {
+      return
+    }
+
+    const match = columnsByKey.get(pinnedKey)
+    if (!match) {
+      return
+    }
+
+    nextColumns[match[0]] = match[1]
+  })
+
+  return {
+    columns: withPinnedColumnFlags(nextColumns),
+    policyActive: true,
+    defaultVisibleFieldKeys,
+  }
 }

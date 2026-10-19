@@ -66,6 +66,7 @@ import {
   getProdutoFieldValue,
   parseDateValue,
   resolveActivityDigitalDefault,
+  resolveEffectiveColumns,
   resolveProductImage,
   toDropdownActivityId,
 } from './product-list/utils'
@@ -618,7 +619,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     () => (activityEligibleItems.length === 1 ? activityEligibleItems[0].idwfatividaderealizada : null),
     [activityEligibleItems],
   )
-  const backendColumns = useMemo(() => atividade?.columns ?? {}, [atividade])
+  const effectiveColumns = useMemo(
+    () => resolveEffectiveColumns(atividade?.columns ?? {}, atividade?.camposUsoAplicacao),
+    [atividade],
+  )
+  const backendColumns = effectiveColumns.columns
+  const columnPolicyActive = effectiveColumns.policyActive
+  const defaultVisibleFieldKeys = effectiveColumns.defaultVisibleFieldKeys
+  const fieldsHiddenFromCardPicker = useMemo(() => [] as string[], [])
   const allFieldOptions = useMemo<FieldOption[]>(() => {
     return Object.entries(backendColumns)
       .map((field) => ({
@@ -633,6 +641,11 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   }, [backendColumns])
   const exportFieldOptions = useMemo<FieldOption[]>(() => {
     const optionsByKey = new Map(allFieldOptions.map((option) => [option.value, option]))
+
+    if (columnPolicyActive) {
+      return Array.from(optionsByKey.values())
+        .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
+    }
 
     products.forEach((produto) => {
       Object.entries(produto).forEach(([field, value]) => {
@@ -657,7 +670,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
     return Array.from(optionsByKey.values())
       .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
-  }, [allFieldOptions, products])
+  }, [allFieldOptions, columnPolicyActive, products])
   const fieldConfigByKey = useMemo(
     () => backendColumns,
     [backendColumns],
@@ -687,13 +700,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     [exportFieldOptions],
   )
   const cardVisibleFields = useMemo(
-    () => visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
+    () => visibleFields.filter((field) => field !== 'produto' && field !== 'idproduto' && field !== 'codigobarras'),
     [visibleFields],
   )
+  const visibleMarketFieldKeys = MARKET_FIELD_KEYS
 
   const fieldOptions = useMemo(
-    () => allFieldOptions.filter((option) => !ALWAYS_VISIBLE_FIELDS.includes(option.value)),
-    [allFieldOptions],
+    () => allFieldOptions.filter((option) => !fieldsHiddenFromCardPicker.includes(option.value)),
+    [allFieldOptions, fieldsHiddenFromCardPicker],
   )
 
   const searchableFieldOptions = useMemo(
@@ -830,15 +844,19 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     const availableValues = new Set(fieldOptions.map((option) => option.value))
 
     setVisibleFields((current) => {
-      const filteredCurrent = current.filter((field) => availableValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field))
+      const filteredCurrent = current.filter((field) => availableValues.has(field) && !fieldsHiddenFromCardPicker.includes(field))
 
       if (filteredCurrent.length > 0 || fieldOptions.length === 0) {
         return filteredCurrent
       }
 
+      if (columnPolicyActive) {
+        return defaultVisibleFieldKeys.filter((field) => availableValues.has(field))
+      }
+
       return fieldOptions.slice(0, 2).map((field) => field.value)
     })
-  }, [fieldOptions])
+  }, [columnPolicyActive, defaultVisibleFieldKeys, fieldOptions, fieldsHiddenFromCardPicker])
 
   useEffect(() => {
     const availableValues = new Set(exportFieldOptions.map((option) => option.value))
@@ -968,18 +986,25 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           ? 'produto'
           : orderableFieldOptions[0]?.value ?? ''
         const availableExportFieldValues = new Set(exportFieldOptions.map((option) => option.value))
-        const defaultVisibleFields = fieldOptions.slice(0, 2).map((field) => field.value)
-        const loadedVisibleFields = preferences
+        const defaultVisibleFields = columnPolicyActive
+          ? defaultVisibleFieldKeys.filter((field) => availableFieldValues.has(field))
+          : fieldOptions.slice(0, 2).map((field) => field.value)
+        const savedVisibleFields = preferences
           ? preferences.visibleFields.filter(
-            (field) => availableFieldValues.has(field) && !ALWAYS_VISIBLE_FIELDS.includes(field),
+            (field) => availableFieldValues.has(field) && !fieldsHiddenFromCardPicker.includes(field),
           )
-          : defaultVisibleFields
-        const defaultExportFields = Array.from(
-          new Set([...ALWAYS_VISIBLE_FIELDS, ...loadedVisibleFields]),
+          : []
+        const loadedVisibleFields = savedVisibleFields.length > 0 ? savedVisibleFields : defaultVisibleFields
+        const defaultExportFields = (columnPolicyActive
+          ? defaultVisibleFieldKeys
+          : Array.from(new Set([...ALWAYS_VISIBLE_FIELDS, ...loadedVisibleFields]))
         ).filter((field) => availableExportFieldValues.has(field))
         const savedExportFieldKeys = preferences?.exportFields
-        const savedExportFields = Array.isArray(savedExportFieldKeys)
+        const filteredSavedExportFields = Array.isArray(savedExportFieldKeys)
           ? savedExportFieldKeys.filter((field) => availableExportFieldValues.has(field))
+          : []
+        const savedExportFields = filteredSavedExportFields.length > 0
+          ? filteredSavedExportFields
           : defaultExportFields
 
         if (preferences) {
@@ -1012,7 +1037,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     return () => {
       isCancelled = true
     }
-  }, [atividade, exportFieldOptions, fieldOptions, orderableFieldOptions])
+  }, [atividade, columnPolicyActive, defaultVisibleFieldKeys, exportFieldOptions, fieldOptions, fieldsHiddenFromCardPicker, orderableFieldOptions])
 
   useEffect(() => {
     if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
@@ -1021,7 +1046,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
     const preferences: ActivityProductListPreferences = {
       layout,
-      visibleFields: visibleFields.filter((field) => !ALWAYS_VISIBLE_FIELDS.includes(field)),
+      visibleFields: visibleFields.filter((field) => !fieldsHiddenFromCardPicker.includes(field)),
       exportFields,
       sortField,
       sortDirection,
@@ -1031,7 +1056,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     void saveActivityProductListPreferences(getActivityScopeKey(atividade), preferences).catch((error) => {
       console.warn('[ProductList] Falha ao persistir preferências de visualização da atividade.', error)
     })
-  }, [atividade, exportFields, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
+  }, [atividade, exportFields, fieldsHiddenFromCardPicker, layout, sortDirection, sortField, visibleFields, showForwardedProducts])
 
   const setMarketFilterDropdownRef = useCallback((field: MarketFieldKey, element: Dropdown | null) => {
     marketFilterDropdownRefs.current[field] = element
@@ -1159,7 +1184,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     })()
 
     const filteredByMarket = products.filter((produto) => {
-      return MARKET_FIELD_KEYS.every((field) => {
+      return visibleMarketFieldKeys.every((field) => {
         const selectedValue = marketFilters[field]
 
         if (!selectedValue) {
@@ -1234,6 +1259,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   }, [
     fieldConfigByKey,
     marketFilters,
+    visibleMarketFieldKeys,
     products,
     searchField,
     selectedSearchFieldType,
@@ -1664,6 +1690,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               })
             }
           />
+          {visibleMarketFieldKeys.length > 0 && (
           <Button
             type="button"
             icon={<FontAwesomeIcon icon={faLayerGroup} />}
@@ -1685,6 +1712,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               })
             }
           />
+          )}
           {!readOnlyPackageView && (
             <Button
               type="button"
@@ -2047,11 +2075,15 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           </div>
         </div>
       )}
-      {showMarketFilters && (
+      {showMarketFilters && visibleMarketFieldKeys.length > 0 && (
         <div className="product-list-control-panel">
           <div className="product-sort-row product-market-filters">
             <span className="product-control-label">Filtros mercadológicos</span>
-            {MARKET_FIELD_KEYS.map((field) => (
+            {visibleMarketFieldKeys.map((field) => {
+              const visibleIndex = visibleMarketFieldKeys.indexOf(field)
+              const previousField = visibleIndex > 0 ? visibleMarketFieldKeys[visibleIndex - 1] : null
+
+              return (
               <Dropdown
                 key={field}
                 ref={(element) => {
@@ -2064,10 +2096,9 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 onChange={(event: DropdownChangeEvent) =>
                   setMarketFilters((current) => {
                     const nextValue = (event.value as string | null) ?? ''
-                    const currentIndex = MARKET_FIELD_INDEX[field]
                     const next = { ...current, [field]: nextValue }
 
-                    MARKET_FIELD_KEYS.slice(currentIndex + 1).forEach((dependentField) => {
+                    visibleMarketFieldKeys.slice(visibleIndex + 1).forEach((dependentField) => {
                       next[dependentField] = ''
                     })
 
@@ -2079,9 +2110,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
                 optionValue="value"
                 className="product-sort-column"
                 placeholder={MARKET_FIELD_LABELS[field]}
-                disabled={MARKET_FIELD_INDEX[field] > 0 && !marketFilters[MARKET_FIELD_KEYS[MARKET_FIELD_INDEX[field] - 1]]}
+                disabled={previousField != null && !marketFilters[previousField]}
               />
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

@@ -15,6 +15,7 @@ import type {
   ActivitySnapshot,
   AtividadeComProdutos,
   AtividadeElegivelProduto,
+  CampoUsoAplicacao,
   ProdutoEan,
   ProdutoAtividade,
 } from '../types/workflow'
@@ -194,6 +195,47 @@ const toAtividadeProdutoColumnsFromGroups = (value: unknown): Record<string, Ati
   return columns
 }
 
+const toBooleanFlag = (value: unknown) =>
+  value === true || value === 'S' || value === 's' || value === 'true' || value === 1
+
+const toCamposUsoAplicacao = (value: unknown): CampoUsoAplicacao[] | null => {
+  let raw = value
+  if (isRecord(raw) && typeof raw.value === 'string') {
+    raw = raw.value
+  }
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      return null
+    }
+    try {
+      raw = JSON.parse(trimmed) as unknown
+    } catch {
+      return null
+    }
+  }
+
+  if (!Array.isArray(raw)) {
+    return null
+  }
+
+  const seen = new Set<string>()
+  const items = raw.flatMap((item) => {
+    if (!isRecord(item)) {
+      return []
+    }
+    const campo = String(item.campo ?? item.key ?? '').trim().toLowerCase()
+    if (!campo || seen.has(campo)) {
+      return []
+    }
+    seen.add(campo)
+    return [{ campo, visual: toBooleanFlag(item.visual) }]
+  })
+
+  return items.length > 0 ? items : null
+}
+
 const toProduto = (
   value: unknown,
   columns: Record<string, AtividadeProdutoColumn>,
@@ -318,6 +360,7 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
       .filter((produto): produto is ProdutoAtividade => produto !== null),
     groupcolumns: Array.isArray(value.groupcolumns) ? value.groupcolumns : [],
     columns,
+    camposUsoAplicacao: toCamposUsoAplicacao(value.camposusoaplicacao ?? value.camposUsoAplicacao),
   }
 }
 

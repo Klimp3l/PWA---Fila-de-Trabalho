@@ -1,5 +1,6 @@
 export const DEFAULT_PRODUCT_IMAGE = `${import.meta.env.BASE_URL}default.png`
 export const ALWAYS_VISIBLE_FIELDS = ['produto', 'idproduto', 'codigobarras']
+export const PINNED_COLUMN_KEYS = ['produto', 'idproduto', 'codigobarras', 'departamento', 'setor', 'grupo', 'familia']
 export const SWIPE_THRESHOLD = 60
 
 export const MARKET_FIELD_KEYS = ['departamento', 'setor', 'grupo', 'familia'] as const
