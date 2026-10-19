@@ -191,6 +191,25 @@ export const logout = async (
   })
 }
 
+export const getColunasAplicativo = async (
+  baseUrl = API_BASE_URL,
+  signal?: AbortSignal,
+): Promise<unknown> => {
+  const cacheBuster = encodeURIComponent(`${Date.now()}-${crypto.randomUUID()}`)
+  const response = await fetchWithSessionValidation(buildExecTarefaUrl(baseUrl) + `&scriptFunction=getColunasAplicativo&_=${cacheBuster}`, {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+    },
+    signal,
+  })
+
+  return parseJson(response)
+}
+
 export const getAtividades = async (
   baseUrl = API_BASE_URL,
   signal?: AbortSignal,

@@ -108,9 +108,20 @@ export interface AtividadeComProdutos {
   camposUsoAplicacao?: CampoUsoAplicacao[] | null
 }
 
+export interface CatalogoColunaExcecao {
+  type?: string
+  inputType?: string | null
+}
+
+export interface CatalogoColunasAplicativo {
+  grupos: AtividadeProdutoGroupColumn[]
+  excecoes: Record<string, Record<string, CatalogoColunaExcecao>>
+}
+
 export interface ActivitySnapshot {
   updatedAt: number
   atividades: AtividadeComProdutos[]
+  catalogoColunas?: CatalogoColunasAplicativo | null
 }
 
 export interface ActivityProductSelectionsSnapshot {

@@ -1,4 +1,4 @@
-import { getAtividades } from './api'
+import { getAtividades, getColunasAplicativo } from './api'
 import {
   activityProductListPreferencesRepository,
   activityProductSelectionRepository,
@@ -14,6 +14,8 @@ import type {
   ActivityProductSelectionsSnapshot,
   ActivitySnapshot,
   AtividadeComProdutos,
+  CatalogoColunaExcecao,
+  CatalogoColunasAplicativo,
   AtividadeElegivelProduto,
   CampoUsoAplicacao,
   ProdutoEan,
@@ -330,7 +332,152 @@ const toProduto = (
   }
 }
 
-const toAtividade = (value: unknown): AtividadeComProdutos | null => {
+const COLUMN_TYPES: AtividadeProdutoColumn['type'][] = ['select', 'multipleSelect', 'input', 'inputNumber', 'date', 'boolean']
+
+const toColumnType = (value: unknown): AtividadeProdutoColumn['type'] => {
+  const normalizedType = String(value ?? 'input')
+  return COLUMN_TYPES.includes(normalizedType as AtividadeProdutoColumn['type'])
+    ? normalizedType as AtividadeProdutoColumn['type']
+    : 'input'
+}
+
+const toColumnInputType = (value: unknown): AtividadeProdutoColumn['inputType'] => {
+  if (value == null || value === '') {
+    return undefined
+  }
+
+  const normalizedType = String(value)
+  return COLUMN_TYPES.includes(normalizedType as AtividadeProdutoColumn['type'])
+    ? normalizedType as AtividadeProdutoColumn['inputType']
+    : undefined
+}
+
+const parseJsonValue = (value: unknown) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return value
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return value
+  }
+}
+
+const toCatalogoExcecoes = (value: unknown): CatalogoColunasAplicativo['excecoes'] => {
+  const raw = parseJsonValue(value)
+  if (!isRecord(raw)) {
+    return {}
+  }
+
+  return Object.entries(raw).reduce<CatalogoColunasAplicativo['excecoes']>((accumulator, [activityId, fields]) => {
+    const fieldMap = parseJsonValue(fields)
+    if (!isRecord(fieldMap)) {
+      return accumulator
+    }
+
+    const patches = Object.entries(fieldMap).reduce<Record<string, CatalogoColunaExcecao>>((fieldAccumulator, [field, patch]) => {
+      const patchValue = parseJsonValue(patch)
+      if (!isRecord(patchValue)) {
+        return fieldAccumulator
+      }
+
+      fieldAccumulator[field] = {
+        type: typeof patchValue.type === 'string' ? patchValue.type : undefined,
+        inputType: patchValue.inputType == null ? null : String(patchValue.inputType),
+      }
+      return fieldAccumulator
+    }, {})
+
+    accumulator[activityId] = patches
+    return accumulator
+  }, {})
+}
+
+export const toCatalogoColunasAplicativo = (value: unknown): CatalogoColunasAplicativo | null => {
+  let raw = parseJsonValue(value)
+  if (Array.isArray(raw)) {
+    raw = raw[0]
+  }
+  if (!isRecord(raw)) {
+    return null
+  }
+  if (!('grupos' in raw) && isRecord(raw.catalogo)) {
+    raw = raw.catalogo
+  }
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const grupos = parseJsonValue(raw.grupos)
+  if (!Array.isArray(grupos)) {
+    return null
+  }
+
+  return {
+    grupos: grupos as CatalogoColunasAplicativo['grupos'],
+    excecoes: toCatalogoExcecoes(raw.excecoes),
+  }
+}
+
+const applyColumnExceptions = (
+  columns: Record<string, AtividadeProdutoColumn>,
+  exception: Record<string, CatalogoColunaExcecao> | undefined,
+) => {
+  if (!exception) {
+    return columns
+  }
+
+  const nextColumns = { ...columns }
+  Object.entries(exception).forEach(([key, patch]) => {
+    const current = nextColumns[key]
+    if (!current) {
+      return
+    }
+
+    nextColumns[key] = {
+      ...current,
+      ...(patch.type != null ? { type: toColumnType(patch.type) } : {}),
+      ...('inputType' in patch ? { inputType: toColumnInputType(patch.inputType) } : {}),
+    }
+  })
+
+  return nextColumns
+}
+
+const resolveAtividadeColumns = (
+  value: Record<string, unknown>,
+  idwfatividade: number,
+  catalogo: CatalogoColunasAplicativo | null,
+) => {
+  const ownGroups = Array.isArray(value.groupcolumns) && value.groupcolumns.length > 0
+    ? value.groupcolumns
+    : null
+  const groups = ownGroups ?? catalogo?.grupos ?? []
+  const columns = toAtividadeProdutoColumnsFromGroups(groups)
+
+  if (ownGroups) {
+    return {
+      columns,
+      groupcolumns: ownGroups,
+    }
+  }
+
+  return {
+    columns: applyColumnExceptions(columns, catalogo?.excecoes[String(idwfatividade)]),
+    groupcolumns: [] as AtividadeComProdutos['groupcolumns'],
+  }
+}
+
+const toAtividade = (
+  value: unknown,
+  catalogo: CatalogoColunasAplicativo | null = null,
+): AtividadeComProdutos | null => {
   if (!isRecord(value)) {
     return null
   }
@@ -339,11 +486,12 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
   const idwfprocesso = toNumberOrNull(value.idwfprocesso)
   const idwfatividade = toNumberOrNull(value.idwfatividade)
   const produtosRaw = Array.isArray(value.produtos) ? value.produtos : (Array.isArray(value.filas) ? value.filas : [])
-  const columns = toAtividadeProdutoColumnsFromGroups(value.groupcolumns)
 
   if (idempresa === null || idwfprocesso === null || idwfatividade === null) {
     return null
   }
+
+  const { columns, groupcolumns } = resolveAtividadeColumns(value, idwfatividade, catalogo)
 
   return {
     idempresa,
@@ -358,9 +506,29 @@ const toAtividade = (value: unknown): AtividadeComProdutos | null => {
     produtos: produtosRaw
       .map((produto) => toProduto(produto, columns))
       .filter((produto): produto is ProdutoAtividade => produto !== null),
-    groupcolumns: Array.isArray(value.groupcolumns) ? value.groupcolumns : [],
+    groupcolumns,
     columns,
     camposUsoAplicacao: toCamposUsoAplicacao(value.camposusoaplicacao ?? value.camposUsoAplicacao),
+  }
+}
+
+const ensureAtividadeColumns = (
+  atividade: AtividadeComProdutos,
+  catalogo: CatalogoColunasAplicativo | null | undefined,
+) => {
+  if (!catalogo || Object.keys(atividade.columns ?? {}).length > 0) {
+    return atividade
+  }
+
+  const columns = applyColumnExceptions(
+    toAtividadeProdutoColumnsFromGroups(catalogo.grupos),
+    catalogo.excecoes[String(atividade.idwfatividade)],
+  )
+
+  return {
+    ...atividade,
+    columns,
+    produtos: atividade.produtos.map((produto) => toProduto(produto, columns) ?? produto),
   }
 }
 
@@ -571,11 +739,21 @@ export const loadAtividadesWithOfflineFallback = async (
   throwIfAborted(signal)
 
   try {
-    const rawResponse = await getAtividades(undefined, signal)
+    const [rawResponse, catalogResponse] = await Promise.all([
+      getAtividades(undefined, signal),
+      getColunasAplicativo(undefined, signal).catch((error: unknown) => {
+        if (isAbortError(error, signal)) {
+          throw error
+        }
+        console.warn('[activityData] Falha ao carregar o catálogo de colunas.', error)
+        return null
+      }),
+    ])
     throwIfAborted(signal)
+    const catalogoColunas = toCatalogoColunasAplicativo(catalogResponse)
     const rawAtividades = extractRawAtividades(rawResponse)
     const parsedAtividades = rawAtividades
-      .map(toAtividade)
+      .map((atividade) => toAtividade(atividade, catalogoColunas))
       .filter((atividade): atividade is AtividadeComProdutos => atividade !== null)
 
     if (rawAtividades.length > 0 && parsedAtividades.length === 0) {
@@ -587,6 +765,7 @@ export const loadAtividadesWithOfflineFallback = async (
     const snapshot: ActivitySnapshot = {
       updatedAt: Date.now(),
       atividades: atividadesWithLocalSelections,
+      catalogoColunas,
     }
 
     throwIfAborted(signal)
@@ -601,6 +780,9 @@ export const loadAtividadesWithOfflineFallback = async (
     console.warn('[activityData] Falha ao carregar atividades online. Usando snapshot offline.', error)
     const localSnapshot = await activitySnapshotRepository.load(userScope)
     throwIfAborted(signal)
-    return applyLocalSelections(localSnapshot?.atividades ?? [], localSelectionsSnapshot)
+    const atividadesOffline = (localSnapshot?.atividades ?? []).map((atividade) =>
+      ensureAtividadeColumns(atividade, localSnapshot?.catalogoColunas),
+    )
+    return applyLocalSelections(atividadesOffline, localSelectionsSnapshot)
   }
 }
