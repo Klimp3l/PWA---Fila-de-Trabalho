@@ -5,7 +5,7 @@ import type {
   CampoUsoAplicacao,
   ProdutoAtividade,
 } from '../../types/workflow'
-import { DEFAULT_PRODUCT_IMAGE, PINNED_COLUMN_KEYS } from './config'
+import { DATA_INCLUSAO_FIELD, DEFAULT_PRODUCT_IMAGE, PINNED_COLUMN_KEYS } from './config'
 
 type FieldFormatter = (value: unknown) => string
 type LocalFieldType = 'string' | 'number' | 'currency' | 'date'
@@ -295,7 +295,17 @@ export const resolveEffectiveColumns = (
       return
     }
 
-    nextColumns[match[0]] = match[1]
+    const [key, column] = match
+    if (key.toLowerCase() === DATA_INCLUSAO_FIELD) {
+      nextColumns[key] = {
+        ...column,
+        defaultVisible: true,
+      }
+      defaultVisibleFieldKeys.push(key)
+      return
+    }
+
+    nextColumns[key] = column
   })
 
   return {

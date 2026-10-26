@@ -51,6 +51,7 @@ import {
 } from '../services/activityData'
 import {
   CARD_INTERACTIVE_SELECTOR,
+  DATA_INCLUSAO_FIELD,
   DEFAULT_PRODUCT_IMAGE,
   ALWAYS_VISIBLE_FIELDS,
   MARKET_FIELD_INDEX,
@@ -709,6 +710,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     () => allFieldOptions.filter((option) => !fieldsHiddenFromCardPicker.includes(option.value)),
     [allFieldOptions, fieldsHiddenFromCardPicker],
   )
+  const withDataInclusaoVisible = useCallback((fields: string[], availableValues: Set<string>) => {
+    const dataInclusaoColumn = backendColumns[DATA_INCLUSAO_FIELD]
+    if (dataInclusaoColumn?.defaultVisible !== true || !availableValues.has(DATA_INCLUSAO_FIELD) || fields.includes(DATA_INCLUSAO_FIELD)) {
+      return fields
+    }
+
+    return [...fields, DATA_INCLUSAO_FIELD]
+  }, [backendColumns])
 
   const searchableFieldOptions = useMemo(
     () => allFieldOptions.filter((option) => option.searchable),
@@ -847,16 +856,22 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       const filteredCurrent = current.filter((field) => availableValues.has(field) && !fieldsHiddenFromCardPicker.includes(field))
 
       if (filteredCurrent.length > 0 || fieldOptions.length === 0) {
-        return filteredCurrent
+        return withDataInclusaoVisible(filteredCurrent, availableValues)
       }
 
       if (columnPolicyActive) {
-        return defaultVisibleFieldKeys.filter((field) => availableValues.has(field))
+        return withDataInclusaoVisible(
+          defaultVisibleFieldKeys.filter((field) => availableValues.has(field)),
+          availableValues,
+        )
       }
 
-      return fieldOptions.slice(0, 2).map((field) => field.value)
+      return withDataInclusaoVisible(
+        fieldOptions.slice(0, 2).map((field) => field.value),
+        availableValues,
+      )
     })
-  }, [columnPolicyActive, defaultVisibleFieldKeys, fieldOptions, fieldsHiddenFromCardPicker])
+  }, [columnPolicyActive, defaultVisibleFieldKeys, fieldOptions, fieldsHiddenFromCardPicker, withDataInclusaoVisible])
 
   useEffect(() => {
     const availableValues = new Set(exportFieldOptions.map((option) => option.value))
@@ -994,7 +1009,10 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
             (field) => availableFieldValues.has(field) && !fieldsHiddenFromCardPicker.includes(field),
           )
           : []
-        const loadedVisibleFields = savedVisibleFields.length > 0 ? savedVisibleFields : defaultVisibleFields
+        const loadedVisibleFields = withDataInclusaoVisible(
+          savedVisibleFields.length > 0 ? savedVisibleFields : defaultVisibleFields,
+          availableFieldValues,
+        )
         const defaultExportFields = (columnPolicyActive
           ? defaultVisibleFieldKeys
           : Array.from(new Set([...ALWAYS_VISIBLE_FIELDS, ...loadedVisibleFields]))
@@ -1037,7 +1055,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     return () => {
       isCancelled = true
     }
-  }, [atividade, columnPolicyActive, defaultVisibleFieldKeys, exportFieldOptions, fieldOptions, fieldsHiddenFromCardPicker, orderableFieldOptions])
+  }, [atividade, columnPolicyActive, defaultVisibleFieldKeys, exportFieldOptions, fieldOptions, fieldsHiddenFromCardPicker, orderableFieldOptions, withDataInclusaoVisible])
 
   useEffect(() => {
     if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
