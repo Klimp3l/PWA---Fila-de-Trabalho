@@ -60,7 +60,10 @@ import {
   type MarketFieldKey,
 } from './product-list/config'
 import {
+  buildExcelColumnModel,
   compareFieldValues,
+  EXCEL_NOTE_LABEL,
+  EXCEL_STORE_ID_LABEL,
   formatDateValue,
   formatFieldValue,
   getAtividadeLabel,
@@ -68,6 +71,7 @@ import {
   parseDateValue,
   resolveActivityDigitalDefault,
   resolveEffectiveColumns,
+  resolveExcelColumnBoundaries,
   resolveProductImage,
   toDropdownActivityId,
 } from './product-list/utils'
@@ -370,7 +374,8 @@ const COLUMN_GROUPS: Array<{ key: ColumnGroupKey; label: string; icon: IconProp 
 const EXPORT_FIELD_LABELS: Record<string, string> = {
   idproduto: 'ID do produto',
   codigobarras: 'Código de barras',
-  idempresa: 'ID da empresa',
+  idempresa: EXCEL_STORE_ID_LABEL,
+  observacao: EXCEL_NOTE_LABEL,
   idwffilatrabalho: 'ID da fila de trabalho',
   idwfocorrencia: 'ID da ocorrência',
   idwfatividaderealizada: 'ID da atividade realizada',
@@ -640,38 +645,54 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
       }))
       .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
   }, [backendColumns])
+  const excelBoundaries = useMemo(
+    () => resolveExcelColumnBoundaries(backendColumns),
+    [backendColumns],
+  )
   const exportFieldOptions = useMemo<FieldOption[]>(() => {
     const optionsByKey = new Map(allFieldOptions.map((option) => [option.value, option]))
 
-    if (columnPolicyActive) {
-      return Array.from(optionsByKey.values())
-        .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
-    }
+    if (!columnPolicyActive) {
+      products.forEach((produto) => {
+        Object.entries(produto).forEach(([field, value]) => {
+          if (field === 'urlImagem' || field === 'ean' || optionsByKey.has(field)) {
+            return
+          }
 
-    products.forEach((produto) => {
-      Object.entries(produto).forEach(([field, value]) => {
-        if (field === 'urlImagem' || field === 'ean' || optionsByKey.has(field)) {
-          return
-        }
-
-        optionsByKey.set(field, {
-          label: formatExportFieldLabel(field),
-          value: field,
-          type: field.startsWith('data')
-            ? 'date'
-            : typeof value === 'number'
-              ? 'inputNumber'
-              : 'input',
-          options: undefined,
-          searchable: false,
-          sortable: false,
+          optionsByKey.set(field, {
+            label: formatExportFieldLabel(field),
+            value: field,
+            type: field.startsWith('data')
+              ? 'date'
+              : typeof value === 'number'
+                ? 'inputNumber'
+                : 'input',
+            options: undefined,
+            searchable: false,
+            sortable: false,
+          })
         })
       })
-    })
+    }
+
+    const ensureBoundaryOption = (key: string, label: string) => {
+      const current = optionsByKey.get(key)
+      optionsByKey.set(key, {
+        label,
+        value: key,
+        type: 'input',
+        options: current?.options,
+        searchable: current?.searchable ?? false,
+        sortable: current?.sortable ?? false,
+      })
+    }
+
+    ensureBoundaryOption(excelBoundaries.firstKey, EXCEL_STORE_ID_LABEL)
+    ensureBoundaryOption(excelBoundaries.lastKey, EXCEL_NOTE_LABEL)
 
     return Array.from(optionsByKey.values())
       .sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
-  }, [allFieldOptions, columnPolicyActive, products])
+  }, [allFieldOptions, columnPolicyActive, excelBoundaries.firstKey, excelBoundaries.lastKey, products])
   const fieldConfigByKey = useMemo(
     () => backendColumns,
     [backendColumns],
@@ -875,8 +896,15 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
 
   useEffect(() => {
     const availableValues = new Set(exportFieldOptions.map((option) => option.value))
-    setExportFields((current) => current.filter((field) => availableValues.has(field)))
-  }, [exportFieldOptions])
+    setExportFields((current) => {
+      const filtered = current.filter((field) => availableValues.has(field))
+      const next = buildExcelColumnModel(filtered, backendColumns)
+      if (next.length === current.length && next.every((field, index) => field === current[index])) {
+        return current
+      }
+      return next
+    })
+  }, [backendColumns, exportFieldOptions])
 
   useEffect(() => {
     setLocallySyncedProductKeys(new Set())
@@ -1000,7 +1028,6 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         const defaultSortField = availableOrderableFieldValues.has('produto')
           ? 'produto'
           : orderableFieldOptions[0]?.value ?? ''
-        const availableExportFieldValues = new Set(exportFieldOptions.map((option) => option.value))
         const defaultVisibleFields = columnPolicyActive
           ? defaultVisibleFieldKeys.filter((field) => availableFieldValues.has(field))
           : fieldOptions.slice(0, 2).map((field) => field.value)
@@ -1013,22 +1040,15 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           savedVisibleFields.length > 0 ? savedVisibleFields : defaultVisibleFields,
           availableFieldValues,
         )
-        const defaultExportFields = (columnPolicyActive
+        const sourceExportFields = columnPolicyActive
           ? defaultVisibleFieldKeys
           : Array.from(new Set([...ALWAYS_VISIBLE_FIELDS, ...loadedVisibleFields]))
-        ).filter((field) => availableExportFieldValues.has(field))
-        const savedExportFieldKeys = preferences?.exportFields
-        const filteredSavedExportFields = Array.isArray(savedExportFieldKeys)
-          ? savedExportFieldKeys.filter((field) => availableExportFieldValues.has(field))
-          : []
-        const savedExportFields = filteredSavedExportFields.length > 0
-          ? filteredSavedExportFields
-          : defaultExportFields
+        const defaultExportFields = buildExcelColumnModel(sourceExportFields, backendColumns)
 
         if (preferences) {
           setLayout(preferences.layout)
           setVisibleFields(loadedVisibleFields)
-          setExportFields(savedExportFields)
+          setExportFields(defaultExportFields)
           setSortDirection(preferences.sortDirection)
           setSortField(
             availableOrderableFieldValues.has(preferences.sortField) ? preferences.sortField : defaultSortField,
@@ -1055,7 +1075,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
     return () => {
       isCancelled = true
     }
-  }, [atividade, columnPolicyActive, defaultVisibleFieldKeys, exportFieldOptions, fieldOptions, fieldsHiddenFromCardPicker, orderableFieldOptions, withDataInclusaoVisible])
+  }, [atividade, backendColumns, columnPolicyActive, defaultVisibleFieldKeys, fieldOptions, fieldsHiddenFromCardPicker, orderableFieldOptions, withDataInclusaoVisible])
 
   useEffect(() => {
     if (!atividade || hasLoadedPreferencesRef.current !== getActivityScopeKey(atividade)) {
@@ -1291,11 +1311,14 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
   ])
   const handleExportFieldsChange = useCallback((selectedFields: string[]) => {
     const selectedFieldSet = new Set(selectedFields)
-    setExportFields((current) => [
-      ...current.filter((field) => selectedFieldSet.has(field)),
-      ...selectedFields.filter((field) => !current.includes(field)),
-    ])
-  }, [])
+    setExportFields((current) => {
+      const next = [
+        ...current.filter((field) => selectedFieldSet.has(field)),
+        ...selectedFields.filter((field) => !current.includes(field)),
+      ]
+      return buildExcelColumnModel(next, backendColumns)
+    })
+  }, [backendColumns])
 
   const exportableFieldKeys = exportFields
 
@@ -1349,6 +1372,9 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
           const fieldConfig = exportFieldConfigByKey[field]
           const hasSpecialValue = Object.prototype.hasOwnProperty.call(specialValues, field)
           const fieldValue = hasSpecialValue ? specialValues[field] : getProdutoFieldValue(produto, field)
+          if (field.toLowerCase() === excelBoundaries.firstKey.toLowerCase()) {
+            return fieldValue == null ? '' : String(fieldValue)
+          }
           return resolveExcelCellValue(fieldConfig, fieldValue)
         })
       })
@@ -1463,7 +1489,7 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
         life: 7000,
       })
     }
-  }, [atividade, exportableFieldKeys, exportFieldConfigByKey, filteredAndSortedProducts, specialFieldValuesByProduct])
+  }, [atividade, excelBoundaries.firstKey, exportableFieldKeys, exportFieldConfigByKey, filteredAndSortedProducts, specialFieldValuesByProduct])
 
   const bulkActivityOptions = useMemo(
     () => (
@@ -1889,7 +1915,8 @@ export function ProductList({ atividade, readOnlyPackageView = false, packagePro
               <OrderList
                 value={orderedExportFieldOptions}
                 onChange={(event: OrderListChangeEvent) => {
-                  setExportFields((event.value as Array<{ value: string }>).map((field) => field.value))
+                  const next = (event.value as Array<{ value: string }>).map((field) => field.value)
+                  setExportFields(buildExcelColumnModel(next, backendColumns))
                 }}
                 itemTemplate={(field: { label: string }) => (
                   <span className="product-export-order-item">{field.label}</span>

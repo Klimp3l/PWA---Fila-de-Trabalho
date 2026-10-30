@@ -229,6 +229,89 @@ export interface EffectiveActivityColumns {
   defaultVisibleFieldKeys: string[]
 }
 
+export const EXCEL_STORE_ID_FIELD = 'idempresa'
+export const EXCEL_STORE_ID_LABEL = 'ID Loja'
+export const EXCEL_NOTE_FIELD = 'observacao'
+export const EXCEL_NOTE_LABEL = 'Observação'
+
+const normalizeExcelLabel = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+
+const findExcelBoundaryKey = (
+  columns: Record<string, AtividadeProdutoColumn>,
+  label: string,
+  fallbackKey: string,
+) => {
+  const normalizedLabel = normalizeExcelLabel(label)
+  const labeledKey = Object.entries(columns).find(
+    ([, column]) => normalizeExcelLabel(column.label ?? '') === normalizedLabel,
+  )?.[0]
+  if (labeledKey) {
+    return labeledKey
+  }
+
+  const keyed = Object.keys(columns).find((key) => key.toLowerCase() === fallbackKey)
+  return keyed ?? fallbackKey
+}
+
+export interface ExcelColumnBoundaries {
+  firstKey: string
+  lastKey: string
+}
+
+export const resolveExcelColumnBoundaries = (
+  columns: Record<string, AtividadeProdutoColumn>,
+): ExcelColumnBoundaries => ({
+  firstKey: findExcelBoundaryKey(columns, EXCEL_STORE_ID_LABEL, EXCEL_STORE_ID_FIELD),
+  lastKey: findExcelBoundaryKey(columns, EXCEL_NOTE_LABEL, EXCEL_NOTE_FIELD),
+})
+
+const isExcelBoundaryField = (
+  field: string,
+  columns: Record<string, AtividadeProdutoColumn>,
+  boundaries: ExcelColumnBoundaries,
+) => {
+  const normalizedField = field.toLowerCase()
+  if (
+    normalizedField === boundaries.firstKey.toLowerCase()
+    || normalizedField === boundaries.lastKey.toLowerCase()
+    || normalizedField === EXCEL_STORE_ID_FIELD
+    || normalizedField === EXCEL_NOTE_FIELD
+  ) {
+    return true
+  }
+
+  const column = columns[field]
+  if (!column) {
+    return false
+  }
+
+  const label = normalizeExcelLabel(column.label ?? '')
+  return label === normalizeExcelLabel(EXCEL_STORE_ID_LABEL) || label === normalizeExcelLabel(EXCEL_NOTE_LABEL)
+}
+
+export const buildExcelColumnModel = (
+  visibleFieldKeys: string[],
+  columns: Record<string, AtividadeProdutoColumn> = {},
+): string[] => {
+  const boundaries = resolveExcelColumnBoundaries(columns)
+  const seen = new Set<string>()
+  const middle = visibleFieldKeys.filter((field) => {
+    const normalizedField = field.toLowerCase()
+    if (isExcelBoundaryField(field, columns, boundaries) || seen.has(normalizedField)) {
+      return false
+    }
+    seen.add(normalizedField)
+    return true
+  })
+
+  return [boundaries.firstKey, ...middle, boundaries.lastKey]
+}
+
 const withPinnedColumnFlags = (
   columns: Record<string, AtividadeProdutoColumn>,
 ): Record<string, AtividadeProdutoColumn> => {
